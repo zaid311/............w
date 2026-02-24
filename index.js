@@ -134,9 +134,10 @@ function errorEmbed(description) {
     .setFooter({ text: 'Stradaz Cafe - Systeme de Ranking', iconURL: IMAGE });
 }
 
+const STAFF_ROLE_IDS = ['1471184058577850623', '1469859492249473219'];
+
 function hasPermission(member) {
-  if (!STAFF_ROLE_ID) return true;
-  return member.roles.cache.has(STAFF_ROLE_ID);
+  return STAFF_ROLE_IDS.some(id => member.roles.cache.has(id));
 }
 
 async function sendLogToChannel(embed) {
