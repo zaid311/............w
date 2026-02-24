@@ -9,14 +9,75 @@ const axios    = require('axios');
 
 const express = require('express');
 const app = express();
+app.use(express.json());
 app.get('/', (req, res) => res.send('Bot is running!'));
+
+// Secret key to verify requests come from your Roblox game
+const API_SECRET = process.env.API_SECRET || 'stradaz-secret-key';
+
+app.post('/promote', async (req, res) => {
+  try {
+    const { username, secret } = req.body;
+    if (secret !== API_SECRET) return res.status(401).json({ error: 'Unauthorized' });
+    const robloxUser = await getRobloxUserByUsername(username);
+    const roles = (await getGroupRoles()).sort((a, b) => a.rank - b.rank);
+    const oldRole = await getUserGroupRole(robloxUser.id);
+    if (!oldRole) return res.status(404).json({ error: 'User not in group' });
+    const idx = roles.findIndex(r => r.id === oldRole.id);
+    if (idx === -1 || idx >= roles.length - 1) return res.status(400).json({ error: 'Already at highest rank' });
+    const newRole = roles[idx + 1];
+    await setGroupRank(robloxUser.id, newRole.id);
+    await RankLog.create({
+      staffDiscordId: 'ROBLOX',
+      staffTag: 'In-Game Command',
+      robloxUsername: robloxUser.name,
+      robloxId: robloxUser.id,
+      oldRank: oldRole.name,
+      newRank: newRole.name,
+      reason: 'Promotion in-game',
+      action: 'PROMOTE',
+    });
+    return res.json({ success: true, oldRank: oldRole.name, newRank: newRole.name, username: robloxUser.name });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/demote', async (req, res) => {
+  try {
+    const { username, secret } = req.body;
+    if (secret !== API_SECRET) return res.status(401).json({ error: 'Unauthorized' });
+    const robloxUser = await getRobloxUserByUsername(username);
+    const roles = (await getGroupRoles()).sort((a, b) => a.rank - b.rank);
+    const oldRole = await getUserGroupRole(robloxUser.id);
+    if (!oldRole) return res.status(404).json({ error: 'User not in group' });
+    const idx = roles.findIndex(r => r.id === oldRole.id);
+    if (idx <= 0) return res.status(400).json({ error: 'Already at lowest rank' });
+    const newRole = roles[idx - 1];
+    await setGroupRank(robloxUser.id, newRole.id);
+    await RankLog.create({
+      staffDiscordId: 'ROBLOX',
+      staffTag: 'In-Game Command',
+      robloxUsername: robloxUser.name,
+      robloxId: robloxUser.id,
+      oldRank: oldRole.name,
+      newRank: newRole.name,
+      reason: 'Retrogradation in-game',
+      action: 'DEMOTE',
+    });
+    return res.json({ success: true, oldRank: oldRole.name, newRank: newRole.name, username: robloxUser.name });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 app.listen(process.env.PORT || 3020, () => console.log('Web server running'));
 
 const DISCORD_TOKEN  = process.env.DISCORD_TOKEN;
 const CLIENT_ID      = process.env.CLIENT_ID;
 const GUILD_ID       = process.env.GUILD_ID;
 const ROBLOX_COOKIE  = process.env.ROBLOX_COOKIE;
-const GROUP_ID       = '11350952'; // hardcoded - dotenv fails to load this for unknown reason
+const GROUP_ID       = '11350952';
 const LOG_CHANNEL_ID = process.env.LOG_CHANNEL_ID;
 const MONGODB_URI    = process.env.MONGODB_URI;
 const STAFF_ROLE_ID  = process.env.STAFF_ROLE_ID;
@@ -65,27 +126,14 @@ async function getRobloxUserByUsername(username) {
 }
 
 async function getGroupRoles() {
-  console.log(`[getGroupRoles] Fetching roles for GROUP_ID=${GROUP_ID}`);
   const res = await axios.get(`https://groups.roblox.com/v1/groups/${GROUP_ID}/roles`);
-  const roles = res.data.roles;
-  console.log(`[getGroupRoles] Found ${roles.length} role(s):`, roles.map(r => `${r.name}(rank:${r.rank})`).join(', '));
-  return roles;
+  return res.data.roles;
 }
 
 async function getUserGroupRole(userId) {
-  console.log(`[getUserGroupRole] Fetching groups for userId=${userId} | Expecting GROUP_ID=${GROUP_ID} (parsed: ${parseInt(GROUP_ID)})`);
   const res = await axios.get(`https://groups.roblox.com/v2/users/${userId}/groups/roles`);
   const groups = res.data.data;
-  console.log(`[getUserGroupRole] User is in ${groups.length} group(s):`);
-  groups.forEach(g =>
-    console.log(`  -> groupId=${g.group.id} (type: ${typeof g.group.id}) | name="${g.group.name}" | role="${g.role?.name}" | rank=${g.role?.rank}`)
-  );
   const m = groups.find(g => g.group.id === parseInt(GROUP_ID));
-  if (!m) {
-    console.warn(`[getUserGroupRole] No match for GROUP_ID=${GROUP_ID}. User may not be in the group, or GROUP_ID is wrong.`);
-  } else {
-    console.log(`[getUserGroupRole] Match found: role="${m.role?.name}", rank=${m.role?.rank}`);
-  }
   return m ? m.role : null;
 }
 
@@ -101,13 +149,11 @@ async function getCsrfToken() {
 }
 
 async function setGroupRank(userId, roleId) {
-  console.log(`[setGroupRank] Setting rank for userId=${userId} to roleId=${roleId}`);
   await axios.patch(
     `https://groups.roblox.com/v1/groups/${GROUP_ID}/users/${userId}`,
     { roleId },
     { headers: { Cookie: `.ROBLOSECURITY=${ROBLOX_COOKIE}`, 'X-CSRF-TOKEN': await getCsrfToken() } }
   );
-  console.log(`[setGroupRank] Rank set successfully.`);
 }
 
 async function getRobloxAvatar(userId) {
