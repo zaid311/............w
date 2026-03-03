@@ -52,7 +52,7 @@ app.post('/demote', async (req, res) => {
     const oldRole = await getUserGroupRole(robloxUser.id);
     if (!oldRole) return res.status(404).json({ error: 'User not in group' });
     const idx = roles.findIndex(r => r.id === oldRole.id);
-    if (idx <= 0) return res.status(400).json({ error: 'Already at lowest rank' });
+    if (idx === -1 || idx >= roles.length - 1) return res.status(400).json({ error: 'Already at highest rank' });
     const newRole = roles[idx - 1];
     await setGroupRank(robloxUser.id, newRole.id);
     await RankLog.create({
@@ -78,6 +78,7 @@ const CLIENT_ID      = process.env.CLIENT_ID;
 const GUILD_ID       = process.env.GUILD_ID;
 const ROBLOX_COOKIE  = process.env.ROBLOX_COOKIE;
 const GROUP_ID       = '11350952';
+const GAME_ID        = '7968913182'; // Stradaz Cafe game ID
 const LOG_CHANNEL_ID = process.env.LOG_CHANNEL_ID;
 const MONGODB_URI    = process.env.MONGODB_URI;
 const STAFF_ROLE_ID  = process.env.STAFF_ROLE_ID;
@@ -163,6 +164,31 @@ async function getRobloxAvatar(userId) {
   } catch { return null; }
 }
 
+// Fetch all gamepasses for the game (paginates through all pages)
+async function getGamePasses() {
+  let passes = [];
+  let cursor = '';
+  do {
+    const url = `https://games.roblox.com/v1/games/${GAME_ID}/game-passes?limit=100&sortOrder=Asc${cursor ? '&cursor=' + cursor : ''}`;
+    const res = await axios.get(url);
+    passes = passes.concat(res.data.data);
+    cursor = res.data.nextPageCursor || '';
+  } while (cursor);
+  return passes;
+}
+
+// Check if a user owns a specific gamepass
+async function userOwnsGamePass(userId, gamePassId) {
+  try {
+    const res = await axios.get(
+      `https://inventory.roblox.com/v1/users/${userId}/items/GamePass/${gamePassId}`
+    );
+    return res.data.data && res.data.data.length > 0;
+  } catch {
+    return false;
+  }
+}
+
 function baseEmbed() {
   return new EmbedBuilder()
     .setColor(0x111111)
@@ -224,6 +250,21 @@ const commands = [
   new SlashCommandBuilder()
     .setName('clearlog')
     .setDescription("Effacer l'historique des rangs."),
+
+  // ── NEW: /own command ──────────────────────────────────────────────────────
+  new SlashCommandBuilder()
+    .setName('own')
+    .setDescription("Verifier si un utilisateur possede un gamepass du jeu Stradaz Cafe.")
+    .addStringOption(o =>
+      o.setName('username')
+        .setDescription("Nom d'utilisateur Roblox")
+        .setRequired(true)
+    )
+    .addStringOption(o =>
+      o.setName('gamepass')
+        .setDescription('Nom (ou partie du nom) du gamepass')
+        .setRequired(true)
+    ),
 ];
 
 async function registerCommands() {
@@ -445,6 +486,63 @@ client.on('interactionCreate', async interaction => {
       new ButtonBuilder().setCustomId('annuler::' + changeId).setLabel('Annuler').setStyle(ButtonStyle.Secondary)
     );
     return interaction.reply({ embeds: [baseEmbed().setDescription('Etes-vous sur de vouloir effacer tout le journal ? Action irreversible.')], components: [row], ephemeral: true });
+  }
+
+  // ── /own command ────────────────────────────────────────────────────────────
+  if (commandName === 'own') {
+    const ok = await safeDefer(interaction);
+    if (!ok) return;
+    try {
+      const username   = interaction.options.getString('username');
+      const passQuery  = interaction.options.getString('gamepass').toLowerCase();
+
+      // 1. Resolve Roblox user
+      const robloxUser = await getRobloxUserByUsername(username);
+
+      // 2. Fetch all gamepasses for our game
+      const passes = await getGamePasses();
+      if (!passes.length) return interaction.editReply({ embeds: [errorEmbed('Aucun gamepass trouve pour ce jeu.')] });
+
+      // 3. Find matching gamepass(es) by partial name
+      const matched = passes.filter(p => p.name.toLowerCase().includes(passQuery));
+      if (!matched.length) {
+        const names = passes.map(p => '`' + p.name + '`').join(', ');
+        return interaction.editReply({ embeds: [errorEmbed('Gamepass introuvable. Disponibles : ' + names)] });
+      }
+
+      // 4. Use the first match; if multiple, we still check the first one
+      const gamePass = matched[0];
+
+      // 5. Check ownership
+      const owns = await userOwnsGamePass(robloxUser.id, gamePass.id);
+
+      // 6. Build the embed
+      const avatar = await getRobloxAvatar(robloxUser.id);
+      const statusEmoji = owns ? '✅' : '❌';
+      const statusText  = owns
+        ? robloxUser.name + ' possede ce gamepass.'
+        : robloxUser.name + ' ne possede pas ce gamepass.';
+
+      const embed = baseEmbed()
+        .setDescription(statusEmoji + ' **Verification de Gamepass**')
+        .setColor(owns ? 0x2ecc71 : 0xe74c3c)
+        .addFields(
+          { name: 'Utilisateur', value: robloxUser.name, inline: true },
+          { name: 'Gamepass', value: gamePass.name, inline: true },
+          { name: 'Jeu', value: 'Stradaz Cafe (`' + GAME_ID + '`)', inline: false },
+          { name: 'Statut', value: statusText, inline: false }
+        );
+
+      if (avatar) embed.setThumbnail(avatar);
+
+      // If there were multiple matches, list them so the user knows
+      if (matched.length > 1) {
+        const others = matched.slice(1).map(p => '`' + p.name + '`').join(', ');
+        embed.addFields({ name: 'Autres correspondances ignorees', value: others });
+      }
+
+      return interaction.editReply({ embeds: [embed] });
+    } catch (err) { return interaction.editReply({ embeds: [errorEmbed(err.message)] }); }
   }
 });
 
