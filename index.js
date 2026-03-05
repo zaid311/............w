@@ -234,6 +234,25 @@ async function banFromRoblox(userId, universeId, reason) {
   return data;
 }
 
+async function unbanFromRoblox(userId, universeId) {
+  const url = `https://apis.roblox.com/cloud/v2/universes/${universeId}/user-restrictions/${userId}`;
+  const res = await fetch(url, {
+    method: 'PATCH',
+    headers: {
+      'x-api-key':    OPEN_CLOUD_API_KEY,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      gameJoinRestriction: {
+        active: false,
+      },
+    }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data?.message || `Open Cloud error: ${res.status}`);
+  return data;
+}
+
 // ─── Embeds ───────────────────────────────────────────────────────────────────
 
 function baseEmbed() {
@@ -316,10 +335,18 @@ const commands = [
     .addStringOption(o => o.setName('username').setDescription("Nom d'utilisateur Roblox").setRequired(true))
     .addStringOption(o => o.setName('gamepass').setDescription('Nom (ou partie du nom) du gamepass').setRequired(true)),
 
-  // ── /ban command ─────────────────────────────────────────────────────────────
+  // ── /rban command ────────────────────────────────────────────────────────────
   new SlashCommandBuilder()
-    .setName('ban')
-    .setDescription('Bannir definitivement un joueur du jeu principal ou du centre de formation.')
+    .setName('rban')
+    .setDescription('Bannir ou débannir un joueur du jeu principal ou du centre de formation.')
+    .addStringOption(o =>
+      o.setName('type')
+       .setDescription('Ban ou Unban ?')
+       .setRequired(true)
+       .addChoices(
+         { name: 'Ban',   value: 'ban'   },
+         { name: 'Unban', value: 'unban' },
+       ))
     .addStringOption(o => o.setName('username').setDescription('Nom d\'utilisateur Roblox').setRequired(true))
     .addStringOption(o =>
       o.setName('game')
@@ -329,7 +356,7 @@ const commands = [
          { name: 'Main Game',       value: 'main'     },
          { name: 'Training Center', value: 'training' },
        ))
-    .addStringOption(o => o.setName('reason').setDescription('Raison du bannissement').setRequired(true)),
+    .addStringOption(o => o.setName('reason').setDescription('Raison (obligatoire pour ban, optionnel pour unban)').setRequired(false)),
 ];
 
 async function registerCommands() {
@@ -403,57 +430,104 @@ client.on('interactionCreate', async interaction => {
       return interaction.editReply({ embeds: [baseEmbed().setDescription('Journal efface.')], components: [] });
     }
 
-    // ── Confirm ban button ───────────────────────────────────────────────────
+    // ── Confirm ban/unban button ─────────────────────────────────────────────
     if (action === 'confirmer_ban') {
       await interaction.deferUpdate();
       try {
-        const { username, userId, game, reason, gameLabel, universeId } = pending;
+        const { type, username, userId, game, reason, gameLabel, universeId } = pending;
 
-        await banFromRoblox(userId, universeId, reason);
+        if (type === 'unban') {
+          // Unban via Roblox Open Cloud
+          await unbanFromRoblox(userId, universeId);
 
-        await Ban.create({
-          robloxUsername: username.toLowerCase(),
-          robloxUserId:   String(userId),
-          game,
-          reason,
-          bannedBy:   interaction.user.tag,
-          bannedById: interaction.user.id,
-        });
+          // Mark as inactive in MongoDB
+          await Ban.findOneAndUpdate(
+            { robloxUsername: username.toLowerCase(), game, active: true },
+            { active: false }
+          );
 
-        await sendLogToChannel(
-          new EmbedBuilder()
-            .setTitle('🔨 Joueur Banni')
-            .setColor(0xff4444)
-            .setThumbnail(IMAGE)
-            .addFields(
-              { name: 'Utilisateur', value: username,    inline: true },
-              { name: 'Jeu',         value: gameLabel,   inline: true },
-              { name: 'Banni par',   value: '<@' + interaction.user.id + '>', inline: true },
-              { name: 'Raison',      value: reason },
-            )
-            .setTimestamp()
-            .setFooter({ text: 'Stradaz Cafe - Systeme de Bannissement', iconURL: IMAGE })
-        );
-
-        return interaction.editReply({
-          embeds: [
+          await sendLogToChannel(
             new EmbedBuilder()
-              .setTitle('🔨 Bannissement Confirme')
-              .setColor(0xff4444)
+              .setTitle('🔓 Joueur Débanni')
+              .setColor(0x2ecc71)
               .setThumbnail(IMAGE)
               .addFields(
-                { name: 'Utilisateur', value: username,  inline: true },
-                { name: 'Jeu',         value: gameLabel, inline: true },
-                { name: 'Raison',      value: reason },
-                { name: 'Banni par',   value: '<@' + interaction.user.id + '>' },
+                { name: 'Utilisateur',  value: username,  inline: true },
+                { name: 'Jeu',          value: gameLabel, inline: true },
+                { name: 'Débanni par',  value: '<@' + interaction.user.id + '>', inline: true },
+                { name: 'Raison',       value: reason },
               )
               .setTimestamp()
               .setFooter({ text: 'Stradaz Cafe - Systeme de Bannissement', iconURL: IMAGE })
-          ],
-          components: [],
-        });
+          );
+
+          return interaction.editReply({
+            embeds: [
+              new EmbedBuilder()
+                .setTitle('🔓 Débannissement Confirmé')
+                .setColor(0x2ecc71)
+                .setThumbnail(IMAGE)
+                .addFields(
+                  { name: 'Utilisateur', value: username,  inline: true },
+                  { name: 'Jeu',         value: gameLabel, inline: true },
+                  { name: 'Raison',      value: reason },
+                  { name: 'Débanni par', value: '<@' + interaction.user.id + '>' },
+                )
+                .setTimestamp()
+                .setFooter({ text: 'Stradaz Cafe - Systeme de Bannissement', iconURL: IMAGE })
+            ],
+            components: [],
+          });
+
+        } else {
+          // Ban via Roblox Open Cloud
+          await banFromRoblox(userId, universeId, reason);
+
+          await Ban.create({
+            robloxUsername: username.toLowerCase(),
+            robloxUserId:   String(userId),
+            game,
+            reason,
+            bannedBy:   interaction.user.tag,
+            bannedById: interaction.user.id,
+          });
+
+          await sendLogToChannel(
+            new EmbedBuilder()
+              .setTitle('🔨 Joueur Banni')
+              .setColor(0xff4444)
+              .setThumbnail(IMAGE)
+              .addFields(
+                { name: 'Utilisateur', value: username,    inline: true },
+                { name: 'Jeu',         value: gameLabel,   inline: true },
+                { name: 'Banni par',   value: '<@' + interaction.user.id + '>', inline: true },
+                { name: 'Raison',      value: reason },
+              )
+              .setTimestamp()
+              .setFooter({ text: 'Stradaz Cafe - Systeme de Bannissement', iconURL: IMAGE })
+          );
+
+          return interaction.editReply({
+            embeds: [
+              new EmbedBuilder()
+                .setTitle('🔨 Bannissement Confirmé')
+                .setColor(0xff4444)
+                .setThumbnail(IMAGE)
+                .addFields(
+                  { name: 'Utilisateur', value: username,  inline: true },
+                  { name: 'Jeu',         value: gameLabel, inline: true },
+                  { name: 'Raison',      value: reason },
+                  { name: 'Banni par',   value: '<@' + interaction.user.id + '>' },
+                )
+                .setTimestamp()
+                .setFooter({ text: 'Stradaz Cafe - Systeme de Bannissement', iconURL: IMAGE })
+            ],
+            components: [],
+          });
+        }
+
       } catch (err) {
-        return interaction.editReply({ embeds: [errorEmbed('Echec du bannissement : ' + err.message)], components: [] });
+        return interaction.editReply({ embeds: [errorEmbed('Echec : ' + err.message)], components: [] });
       }
     }
 
@@ -657,8 +731,8 @@ client.on('interactionCreate', async interaction => {
     } catch (err) { return interaction.editReply({ embeds: [errorEmbed(err.message)] }); }
   }
 
-  // ── /ban ────────────────────────────────────────────────────────────────────
-  if (commandName === 'ban') {
+  // ── /rban ───────────────────────────────────────────────────────────────────
+  if (commandName === 'rban') {
     // Permission check — HR only
     if (!hasHRPermission(interaction.member)) {
       return interaction.reply({ embeds: [errorEmbed('Permission refusee. Commande reservee aux RH.')], ephemeral: true });
@@ -669,9 +743,10 @@ client.on('interactionCreate', async interaction => {
       return interaction.reply({ embeds: [errorEmbed('OPEN_CLOUD_API_KEY manquant dans le fichier .env')], ephemeral: true });
     }
 
+    const type       = interaction.options.getString('type');   // 'ban' or 'unban'
     const username   = interaction.options.getString('username');
     const game       = interaction.options.getString('game');
-    const reason     = interaction.options.getString('reason');
+    const reason     = interaction.options.getString('reason') || 'Aucune raison fournie';
     const gameLabel  = game === 'main' ? 'Main Game' : 'Training Center';
     const universeId = game === 'main' ? MAIN_UNIVERSE_ID : TRAINING_UNIVERSE_ID;
 
@@ -679,54 +754,101 @@ client.on('interactionCreate', async interaction => {
       return interaction.reply({ embeds: [errorEmbed(`Universe ID pour **${gameLabel}** manquant dans le fichier .env`)], ephemeral: true });
     }
 
-    const ok = await safeDefer(interaction, { ephemeral: true });
+    // Defer publicly so everyone in the channel can see
+    const ok = await safeDefer(interaction);
     if (!ok) return;
 
     try {
-      // 1. Resolve Roblox user
       const robloxUser = await getRobloxUserByUsername(username);
 
-      // 2. Check for existing ban
-      const existing = await Ban.findOne({ robloxUsername: username.toLowerCase(), game, active: true });
-      if (existing) {
-        return interaction.editReply({ embeds: [errorEmbed(`**${username}** est deja banni du **${gameLabel}**.\n> Raison : ${existing.reason}`)] });
+      // ── BAN flow ──────────────────────────────────────────────────────────
+      if (type === 'ban') {
+        const existing = await Ban.findOne({ robloxUsername: username.toLowerCase(), game, active: true });
+        if (existing) {
+          return interaction.editReply({ embeds: [errorEmbed(`**${username}** est deja banni du **${gameLabel}**.\n> Raison : ${existing.reason}`)] });
+        }
+
+        const changeId = interaction.id + '-' + Date.now();
+        pendingChanges.set(changeId, {
+          type: 'ban',
+          username,
+          userId: robloxUser.id,
+          game,
+          reason,
+          gameLabel,
+          universeId,
+          requesterId: interaction.user.id,
+        });
+        setTimeout(() => pendingChanges.delete(changeId), 60000);
+
+        const row = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId('confirmer_ban::' + changeId).setLabel('✅ Confirmer le Ban').setStyle(ButtonStyle.Danger),
+          new ButtonBuilder().setCustomId('annuler::' + changeId).setLabel('Annuler').setStyle(ButtonStyle.Secondary)
+        );
+
+        return interaction.editReply({
+          embeds: [
+            new EmbedBuilder()
+              .setTitle('🔨 Confirmer le Bannissement')
+              .setColor(0xff8800)
+              .setThumbnail(IMAGE)
+              .setDescription('Etes-vous sur de vouloir bannir **definitivement** ce joueur ?')
+              .addFields(
+                { name: 'Utilisateur', value: username,  inline: true },
+                { name: 'Jeu',         value: gameLabel, inline: true },
+                { name: 'Raison',      value: reason },
+              )
+              .setTimestamp()
+              .setFooter({ text: 'Stradaz Cafe - Systeme de Bannissement', iconURL: IMAGE })
+          ],
+          components: [row],
+        });
       }
 
-      // 3. Show confirmation with Confirm / Cancel buttons
-      const changeId = interaction.id + '-' + Date.now();
-      pendingChanges.set(changeId, {
-        username,
-        userId: robloxUser.id,
-        game,
-        reason,
-        gameLabel,
-        universeId,
-        requesterId: interaction.user.id,
-      });
-      setTimeout(() => pendingChanges.delete(changeId), 60000);
+      // ── UNBAN flow ────────────────────────────────────────────────────────
+      if (type === 'unban') {
+        const existing = await Ban.findOne({ robloxUsername: username.toLowerCase(), game, active: true });
+        if (!existing) {
+          return interaction.editReply({ embeds: [errorEmbed(`**${username}** n'est pas banni du **${gameLabel}**.`)] });
+        }
 
-      const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('confirmer_ban::' + changeId).setLabel('✅ Confirmer le ban').setStyle(ButtonStyle.Danger),
-        new ButtonBuilder().setCustomId('annuler::' + changeId).setLabel('Annuler').setStyle(ButtonStyle.Secondary)
-      );
+        const changeId = interaction.id + '-' + Date.now();
+        pendingChanges.set(changeId, {
+          type: 'unban',
+          username,
+          userId: robloxUser.id,
+          game,
+          reason,
+          gameLabel,
+          universeId,
+          requesterId: interaction.user.id,
+        });
+        setTimeout(() => pendingChanges.delete(changeId), 60000);
 
-      return interaction.editReply({
-        embeds: [
-          new EmbedBuilder()
-            .setTitle('⚠️ Confirmer le Bannissement')
-            .setColor(0xff8800)
-            .setThumbnail(IMAGE)
-            .addFields(
-              { name: 'Utilisateur', value: username,   inline: true },
-              { name: 'Jeu',         value: gameLabel,  inline: true },
-              { name: 'Raison',      value: reason },
-            )
-            .setDescription('Etes-vous sur de vouloir bannir definitivement ce joueur ?')
-            .setTimestamp()
-            .setFooter({ text: 'Stradaz Cafe - Systeme de Bannissement', iconURL: IMAGE })
-        ],
-        components: [row],
-      });
+        const row = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId('confirmer_ban::' + changeId).setLabel('✅ Confirmer le Unban').setStyle(ButtonStyle.Success),
+          new ButtonBuilder().setCustomId('annuler::' + changeId).setLabel('Annuler').setStyle(ButtonStyle.Secondary)
+        );
+
+        return interaction.editReply({
+          embeds: [
+            new EmbedBuilder()
+              .setTitle('🔓 Confirmer le Débannissement')
+              .setColor(0x2ecc71)
+              .setThumbnail(IMAGE)
+              .setDescription('Etes-vous sur de vouloir débannir ce joueur ?')
+              .addFields(
+                { name: 'Utilisateur',   value: username,          inline: true },
+                { name: 'Jeu',           value: gameLabel,         inline: true },
+                { name: 'Banni pour',    value: existing.reason,   inline: false },
+                { name: 'Raison unban',  value: reason,            inline: false },
+              )
+              .setTimestamp()
+              .setFooter({ text: 'Stradaz Cafe - Systeme de Bannissement', iconURL: IMAGE })
+          ],
+          components: [row],
+        });
+      }
 
     } catch (err) { return interaction.editReply({ embeds: [errorEmbed(err.message)] }); }
   }
