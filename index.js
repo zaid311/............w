@@ -73,21 +73,27 @@ app.post('/demote', async (req, res) => {
 
 app.listen(process.env.PORT || 3020, () => console.log('Web server running'));
 
-const DISCORD_TOKEN  = process.env.DISCORD_TOKEN;
-const CLIENT_ID      = process.env.CLIENT_ID;
-const GUILD_ID       = process.env.GUILD_ID;
-const ROBLOX_COOKIE  = process.env.ROBLOX_COOKIE;
-const GROUP_ID       = '11350952';
-const GAME_ID        = '7968913182'; // Stradaz Cafe game ID
-const LOG_CHANNEL_ID = process.env.LOG_CHANNEL_ID;
-const MONGODB_URI    = process.env.MONGODB_URI;
-const STAFF_ROLE_ID  = process.env.STAFF_ROLE_ID;
+const DISCORD_TOKEN         = process.env.DISCORD_TOKEN;
+const CLIENT_ID             = process.env.CLIENT_ID;
+const GUILD_ID              = process.env.GUILD_ID;
+const ROBLOX_COOKIE         = process.env.ROBLOX_COOKIE;
+const GROUP_ID              = '11350952';
+const GAME_ID               = '7968913182';
+const LOG_CHANNEL_ID        = process.env.LOG_CHANNEL_ID;
+const MONGODB_URI           = process.env.MONGODB_URI;
+const STAFF_ROLE_ID         = process.env.STAFF_ROLE_ID;
+const OPEN_CLOUD_API_KEY    = process.env.OPEN_CLOUD_API_KEY;
+const MAIN_UNIVERSE_ID      = process.env.MAIN_UNIVERSE_ID;
+const TRAINING_UNIVERSE_ID  = process.env.TRAINING_UNIVERSE_ID;
 
 console.log('TOKEN:', DISCORD_TOKEN ? 'OK' : 'MISSING');
 console.log('MONGODB:', MONGODB_URI ? 'OK' : 'MISSING');
+console.log('OPEN CLOUD KEY:', OPEN_CLOUD_API_KEY ? 'OK' : 'MISSING');
 console.log('[DEBUG] GROUP_ID:', GROUP_ID);
 
 const IMAGE = 'https://gpi.hyra.io/11350952/icon';
+
+// ─── Schemas ──────────────────────────────────────────────────────────────────
 
 const rankLogSchema = new mongoose.Schema({
   timestamp:      { type: Date, default: Date.now },
@@ -102,6 +108,20 @@ const rankLogSchema = new mongoose.Schema({
 });
 const RankLog = mongoose.model('RankLog', rankLogSchema);
 
+const banSchema = new mongoose.Schema({
+  robloxUsername: { type: String, required: true },
+  robloxUserId:   { type: String, default: null },
+  game:           { type: String, enum: ['main', 'training'], required: true },
+  reason:         { type: String, required: true },
+  bannedBy:       { type: String, required: true },
+  bannedById:     { type: String, required: true },
+  bannedAt:       { type: Date, default: Date.now },
+  active:         { type: Boolean, default: true },
+});
+const Ban = mongoose.model('Ban', banSchema);
+
+// ─── Discord Client ───────────────────────────────────────────────────────────
+
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -114,6 +134,8 @@ const client = new Client({
 
 client.on('error', err => console.error('Discord error:', err));
 process.on('unhandledRejection', err => console.error('Unhandled:', err));
+
+// ─── Roblox Helpers ───────────────────────────────────────────────────────────
 
 async function getRobloxUserByUsername(username) {
   console.log(`[getRobloxUserByUsername] Looking up: "${username}"`);
@@ -164,7 +186,6 @@ async function getRobloxAvatar(userId) {
   } catch { return null; }
 }
 
-// Fetch all gamepasses for the game (paginates through all pages)
 async function getGamePasses() {
   let passes = [];
   let cursor = '';
@@ -177,7 +198,6 @@ async function getGamePasses() {
   return passes;
 }
 
-// Check if a user owns a specific gamepass
 async function userOwnsGamePass(userId, gamePassId) {
   try {
     const res = await axios.get(
@@ -188,6 +208,33 @@ async function userOwnsGamePass(userId, gamePassId) {
     return false;
   }
 }
+
+// ─── Ban via Roblox Open Cloud API ────────────────────────────────────────────
+
+async function banFromRoblox(userId, universeId, reason) {
+  const url = `https://apis.roblox.com/cloud/v2/universes/${universeId}/user-restrictions/${userId}`;
+  const res = await fetch(url, {
+    method: 'PATCH',
+    headers: {
+      'x-api-key':    OPEN_CLOUD_API_KEY,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      gameJoinRestriction: {
+        active:             true,
+        duration:           null,   // null = permanent
+        privateReason:      reason,
+        displayReason:      reason,
+        excludeAltAccounts: false,
+      },
+    }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data?.message || `Open Cloud error: ${res.status}`);
+  return data;
+}
+
+// ─── Embeds ───────────────────────────────────────────────────────────────────
 
 function baseEmbed() {
   return new EmbedBuilder()
@@ -206,11 +253,22 @@ function errorEmbed(description) {
     .setFooter({ text: 'Stradaz Cafe - Systeme de Ranking', iconURL: IMAGE });
 }
 
+// ─── Permissions ──────────────────────────────────────────────────────────────
+
 const STAFF_ROLE_IDS = ['1471184058577850623', '1469859492249473219'];
+const HR_ROLE_IDS    = process.env.HR_ROLE_IDS
+  ? process.env.HR_ROLE_IDS.split(',')
+  : STAFF_ROLE_IDS; // falls back to staff roles if not set
 
 function hasPermission(member) {
   return STAFF_ROLE_IDS.some(id => member.roles.cache.has(id));
 }
+
+function hasHRPermission(member) {
+  return HR_ROLE_IDS.some(id => member.roles.cache.has(id));
+}
+
+// ─── Log Helper ───────────────────────────────────────────────────────────────
 
 async function sendLogToChannel(embed) {
   if (!LOG_CHANNEL_ID) return;
@@ -219,6 +277,8 @@ async function sendLogToChannel(embed) {
     if (ch) await ch.send({ embeds: [embed] });
   } catch { }
 }
+
+// ─── Commands ─────────────────────────────────────────────────────────────────
 
 const commands = [
   new SlashCommandBuilder()
@@ -250,21 +310,26 @@ const commands = [
   new SlashCommandBuilder()
     .setName('clearlog')
     .setDescription("Effacer l'historique des rangs."),
-
-  // ── NEW: /own command ──────────────────────────────────────────────────────
   new SlashCommandBuilder()
     .setName('own')
     .setDescription("Verifier si un utilisateur possede un gamepass du jeu Stradaz Cafe.")
+    .addStringOption(o => o.setName('username').setDescription("Nom d'utilisateur Roblox").setRequired(true))
+    .addStringOption(o => o.setName('gamepass').setDescription('Nom (ou partie du nom) du gamepass').setRequired(true)),
+
+  // ── /ban command ─────────────────────────────────────────────────────────────
+  new SlashCommandBuilder()
+    .setName('ban')
+    .setDescription('Bannir definitivement un joueur du jeu principal ou du centre de formation.')
+    .addStringOption(o => o.setName('username').setDescription('Nom d\'utilisateur Roblox').setRequired(true))
     .addStringOption(o =>
-      o.setName('username')
-        .setDescription("Nom d'utilisateur Roblox")
-        .setRequired(true)
-    )
-    .addStringOption(o =>
-      o.setName('gamepass')
-        .setDescription('Nom (ou partie du nom) du gamepass')
-        .setRequired(true)
-    ),
+      o.setName('game')
+       .setDescription('Quel jeu ?')
+       .setRequired(true)
+       .addChoices(
+         { name: 'Main Game',       value: 'main'     },
+         { name: 'Training Center', value: 'training' },
+       ))
+    .addStringOption(o => o.setName('reason').setDescription('Raison du bannissement').setRequired(true)),
 ];
 
 async function registerCommands() {
@@ -274,6 +339,8 @@ async function registerCommands() {
   });
   console.log('Commandes enregistrees.');
 }
+
+// ─── Interaction Handler ──────────────────────────────────────────────────────
 
 const pendingChanges = new Map();
 
@@ -335,12 +402,68 @@ client.on('interactionCreate', async interaction => {
       await RankLog.deleteMany({});
       return interaction.editReply({ embeds: [baseEmbed().setDescription('Journal efface.')], components: [] });
     }
+
+    // ── Confirm ban button ───────────────────────────────────────────────────
+    if (action === 'confirmer_ban') {
+      await interaction.deferUpdate();
+      try {
+        const { username, userId, game, reason, gameLabel, universeId } = pending;
+
+        await banFromRoblox(userId, universeId, reason);
+
+        await Ban.create({
+          robloxUsername: username.toLowerCase(),
+          robloxUserId:   String(userId),
+          game,
+          reason,
+          bannedBy:   interaction.user.tag,
+          bannedById: interaction.user.id,
+        });
+
+        await sendLogToChannel(
+          new EmbedBuilder()
+            .setTitle('🔨 Joueur Banni')
+            .setColor(0xff4444)
+            .setThumbnail(IMAGE)
+            .addFields(
+              { name: 'Utilisateur', value: username,    inline: true },
+              { name: 'Jeu',         value: gameLabel,   inline: true },
+              { name: 'Banni par',   value: '<@' + interaction.user.id + '>', inline: true },
+              { name: 'Raison',      value: reason },
+            )
+            .setTimestamp()
+            .setFooter({ text: 'Stradaz Cafe - Systeme de Bannissement', iconURL: IMAGE })
+        );
+
+        return interaction.editReply({
+          embeds: [
+            new EmbedBuilder()
+              .setTitle('🔨 Bannissement Confirme')
+              .setColor(0xff4444)
+              .setThumbnail(IMAGE)
+              .addFields(
+                { name: 'Utilisateur', value: username,  inline: true },
+                { name: 'Jeu',         value: gameLabel, inline: true },
+                { name: 'Raison',      value: reason },
+                { name: 'Banni par',   value: '<@' + interaction.user.id + '>' },
+              )
+              .setTimestamp()
+              .setFooter({ text: 'Stradaz Cafe - Systeme de Bannissement', iconURL: IMAGE })
+          ],
+          components: [],
+        });
+      } catch (err) {
+        return interaction.editReply({ embeds: [errorEmbed('Echec du bannissement : ' + err.message)], components: [] });
+      }
+    }
+
     return;
   }
 
   if (!interaction.isChatInputCommand()) return;
   const { commandName } = interaction;
 
+  // ── /checkrank ──────────────────────────────────────────────────────────────
   if (commandName === 'checkrank') {
     const ok = await safeDefer(interaction);
     if (!ok) return;
@@ -359,6 +482,7 @@ client.on('interactionCreate', async interaction => {
     } catch (err) { return interaction.editReply({ embeds: [errorEmbed(err.message)] }); }
   }
 
+  // ── /promote ────────────────────────────────────────────────────────────────
   if (commandName === 'promote') {
     if (!hasPermission(interaction.member)) return interaction.reply({ embeds: [errorEmbed('Permission refusee.')], ephemeral: true });
     const ok = await safeDefer(interaction);
@@ -389,6 +513,7 @@ client.on('interactionCreate', async interaction => {
     } catch (err) { return interaction.editReply({ embeds: [errorEmbed(err.message)] }); }
   }
 
+  // ── /demote ─────────────────────────────────────────────────────────────────
   if (commandName === 'demote') {
     if (!hasPermission(interaction.member)) return interaction.reply({ embeds: [errorEmbed('Permission refusee.')], ephemeral: true });
     const ok = await safeDefer(interaction);
@@ -419,6 +544,7 @@ client.on('interactionCreate', async interaction => {
     } catch (err) { return interaction.editReply({ embeds: [errorEmbed(err.message)] }); }
   }
 
+  // ── /setrank ────────────────────────────────────────────────────────────────
   if (commandName === 'setrank') {
     if (!hasPermission(interaction.member)) return interaction.reply({ embeds: [errorEmbed('Permission refusee.')], ephemeral: true });
     const ok = await safeDefer(interaction);
@@ -446,6 +572,7 @@ client.on('interactionCreate', async interaction => {
     } catch (err) { return interaction.editReply({ embeds: [errorEmbed(err.message)] }); }
   }
 
+  // ── /ranklog ────────────────────────────────────────────────────────────────
   if (commandName === 'ranklog') {
     const page = Math.max(1, interaction.options.getInteger('page') || 1);
     const PER_PAGE = 10;
@@ -461,6 +588,7 @@ client.on('interactionCreate', async interaction => {
     return interaction.reply({ embeds: [baseEmbed().setDescription('**Journal des rangs - Page ' + pageNum + '/' + totalPages + '**\n\n' + lines).setFooter({ text: 'Stradaz Cafe - ' + total + ' entrees au total', iconURL: IMAGE })] });
   }
 
+  // ── /logstats ───────────────────────────────────────────────────────────────
   if (commandName === 'logstats') {
     const total = await RankLog.countDocuments();
     if (!total) return interaction.reply({ embeds: [baseEmbed().setDescription('Aucun journal.')] });
@@ -476,6 +604,7 @@ client.on('interactionCreate', async interaction => {
     )] });
   }
 
+  // ── /clearlog ───────────────────────────────────────────────────────────────
   if (commandName === 'clearlog') {
     if (!hasPermission(interaction.member)) return interaction.reply({ embeds: [errorEmbed('Permission refusee.')], ephemeral: true });
     const changeId = interaction.id + '-' + Date.now();
@@ -488,41 +617,28 @@ client.on('interactionCreate', async interaction => {
     return interaction.reply({ embeds: [baseEmbed().setDescription('Etes-vous sur de vouloir effacer tout le journal ? Action irreversible.')], components: [row], ephemeral: true });
   }
 
-  // ── /own command ────────────────────────────────────────────────────────────
+  // ── /own ────────────────────────────────────────────────────────────────────
   if (commandName === 'own') {
     const ok = await safeDefer(interaction);
     if (!ok) return;
     try {
-      const username   = interaction.options.getString('username');
-      const passQuery  = interaction.options.getString('gamepass').toLowerCase();
-
-      // 1. Resolve Roblox user
+      const username  = interaction.options.getString('username');
+      const passQuery = interaction.options.getString('gamepass').toLowerCase();
       const robloxUser = await getRobloxUserByUsername(username);
-
-      // 2. Fetch all gamepasses for our game
       const passes = await getGamePasses();
       if (!passes.length) return interaction.editReply({ embeds: [errorEmbed('Aucun gamepass trouve pour ce jeu.')] });
-
-      // 3. Find matching gamepass(es) by partial name
       const matched = passes.filter(p => p.name.toLowerCase().includes(passQuery));
       if (!matched.length) {
         const names = passes.map(p => '`' + p.name + '`').join(', ');
         return interaction.editReply({ embeds: [errorEmbed('Gamepass introuvable. Disponibles : ' + names)] });
       }
-
-      // 4. Use the first match; if multiple, we still check the first one
       const gamePass = matched[0];
-
-      // 5. Check ownership
       const owns = await userOwnsGamePass(robloxUser.id, gamePass.id);
-
-      // 6. Build the embed
       const avatar = await getRobloxAvatar(robloxUser.id);
       const statusEmoji = owns ? '✅' : '❌';
       const statusText  = owns
         ? robloxUser.name + ' possede ce gamepass.'
         : robloxUser.name + ' ne possede pas ce gamepass.';
-
       const embed = baseEmbed()
         .setDescription(statusEmoji + ' **Verification de Gamepass**')
         .setColor(owns ? 0x2ecc71 : 0xe74c3c)
@@ -532,19 +648,91 @@ client.on('interactionCreate', async interaction => {
           { name: 'Jeu', value: 'Stradaz Cafe (`' + GAME_ID + '`)', inline: false },
           { name: 'Statut', value: statusText, inline: false }
         );
-
       if (avatar) embed.setThumbnail(avatar);
-
-      // If there were multiple matches, list them so the user knows
       if (matched.length > 1) {
         const others = matched.slice(1).map(p => '`' + p.name + '`').join(', ');
         embed.addFields({ name: 'Autres correspondances ignorees', value: others });
       }
-
       return interaction.editReply({ embeds: [embed] });
     } catch (err) { return interaction.editReply({ embeds: [errorEmbed(err.message)] }); }
   }
+
+  // ── /ban ────────────────────────────────────────────────────────────────────
+  if (commandName === 'ban') {
+    // Permission check — HR only
+    if (!hasHRPermission(interaction.member)) {
+      return interaction.reply({ embeds: [errorEmbed('Permission refusee. Commande reservee aux RH.')], ephemeral: true });
+    }
+
+    // Config check
+    if (!OPEN_CLOUD_API_KEY) {
+      return interaction.reply({ embeds: [errorEmbed('OPEN_CLOUD_API_KEY manquant dans le fichier .env')], ephemeral: true });
+    }
+
+    const username   = interaction.options.getString('username');
+    const game       = interaction.options.getString('game');
+    const reason     = interaction.options.getString('reason');
+    const gameLabel  = game === 'main' ? 'Main Game' : 'Training Center';
+    const universeId = game === 'main' ? MAIN_UNIVERSE_ID : TRAINING_UNIVERSE_ID;
+
+    if (!universeId) {
+      return interaction.reply({ embeds: [errorEmbed(`Universe ID pour **${gameLabel}** manquant dans le fichier .env`)], ephemeral: true });
+    }
+
+    const ok = await safeDefer(interaction, { ephemeral: true });
+    if (!ok) return;
+
+    try {
+      // 1. Resolve Roblox user
+      const robloxUser = await getRobloxUserByUsername(username);
+
+      // 2. Check for existing ban
+      const existing = await Ban.findOne({ robloxUsername: username.toLowerCase(), game, active: true });
+      if (existing) {
+        return interaction.editReply({ embeds: [errorEmbed(`**${username}** est deja banni du **${gameLabel}**.\n> Raison : ${existing.reason}`)] });
+      }
+
+      // 3. Show confirmation with Confirm / Cancel buttons
+      const changeId = interaction.id + '-' + Date.now();
+      pendingChanges.set(changeId, {
+        username,
+        userId: robloxUser.id,
+        game,
+        reason,
+        gameLabel,
+        universeId,
+        requesterId: interaction.user.id,
+      });
+      setTimeout(() => pendingChanges.delete(changeId), 60000);
+
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('confirmer_ban::' + changeId).setLabel('✅ Confirmer le ban').setStyle(ButtonStyle.Danger),
+        new ButtonBuilder().setCustomId('annuler::' + changeId).setLabel('Annuler').setStyle(ButtonStyle.Secondary)
+      );
+
+      return interaction.editReply({
+        embeds: [
+          new EmbedBuilder()
+            .setTitle('⚠️ Confirmer le Bannissement')
+            .setColor(0xff8800)
+            .setThumbnail(IMAGE)
+            .addFields(
+              { name: 'Utilisateur', value: username,   inline: true },
+              { name: 'Jeu',         value: gameLabel,  inline: true },
+              { name: 'Raison',      value: reason },
+            )
+            .setDescription('Etes-vous sur de vouloir bannir definitivement ce joueur ?')
+            .setTimestamp()
+            .setFooter({ text: 'Stradaz Cafe - Systeme de Bannissement', iconURL: IMAGE })
+        ],
+        components: [row],
+      });
+
+    } catch (err) { return interaction.editReply({ embeds: [errorEmbed(err.message)] }); }
+  }
 });
+
+// ─── Startup ──────────────────────────────────────────────────────────────────
 
 client.once('ready', async () => {
   console.log('Connecte en tant que ' + client.user.tag);
