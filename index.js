@@ -253,6 +253,19 @@ async function unbanFromRoblox(userId, universeId) {
   return data;
 }
 
+// ─── Check Roblox Ban Status via Open Cloud ───────────────────────────────────
+
+async function getRobloxBanStatus(userId, universeId) {
+  const url = `https://apis.roblox.com/cloud/v2/universes/${universeId}/user-restrictions/${userId}`;
+  const res = await fetch(url, {
+    method: 'GET',
+    headers: { 'x-api-key': OPEN_CLOUD_API_KEY },
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data?.message || `Open Cloud error: ${res.status}`);
+  return data?.gameJoinRestriction?.active === true;
+}
+
 // ─── Embeds ───────────────────────────────────────────────────────────────────
 
 function baseEmbed() {
@@ -761,11 +774,36 @@ client.on('interactionCreate', async interaction => {
     try {
       const robloxUser = await getRobloxUserByUsername(username);
 
+      // Check BOTH MongoDB and Roblox's actual ban status
+      const [dbBan, isBannedInGame] = await Promise.all([
+        Ban.findOne({ robloxUsername: username.toLowerCase(), game, active: true }),
+        getRobloxBanStatus(robloxUser.id, universeId),
+      ]);
+
+      // Sync MongoDB if out of date
+      if (isBannedInGame && !dbBan) {
+        await Ban.create({
+          robloxUsername: username.toLowerCase(),
+          robloxUserId:   String(robloxUser.id),
+          game,
+          reason:    'Ban detecte en jeu (sync automatique)',
+          bannedBy:  'Roblox',
+          bannedById: '0',
+        });
+      }
+      if (!isBannedInGame && dbBan) {
+        await Ban.findOneAndUpdate(
+          { robloxUsername: username.toLowerCase(), game, active: true },
+          { active: false }
+        );
+      }
+
+      const actuallyBanned = isBannedInGame;
+
       // ── BAN flow ──────────────────────────────────────────────────────────
       if (type === 'ban') {
-        const existing = await Ban.findOne({ robloxUsername: username.toLowerCase(), game, active: true });
-        if (existing) {
-          return interaction.editReply({ embeds: [errorEmbed(`**${username}** est deja banni du **${gameLabel}**.\n> Raison : ${existing.reason}`)] });
+        if (actuallyBanned) {
+          return interaction.editReply({ embeds: [errorEmbed(`**${username}** est **déjà banni** du **${gameLabel}** (vérifié sur Roblox).\n> Raison enregistrée : ${dbBan?.reason || 'Inconnue'}`)] });
         }
 
         const changeId = interaction.id + '-' + Date.now();
@@ -807,10 +845,11 @@ client.on('interactionCreate', async interaction => {
 
       // ── UNBAN flow ────────────────────────────────────────────────────────
       if (type === 'unban') {
-        const existing = await Ban.findOne({ robloxUsername: username.toLowerCase(), game, active: true });
-        if (!existing) {
-          return interaction.editReply({ embeds: [errorEmbed(`**${username}** n'est pas banni du **${gameLabel}**.`)] });
+        if (!actuallyBanned) {
+          return interaction.editReply({ embeds: [errorEmbed(`**${username}** n'est **pas banni** du **${gameLabel}** (vérifié sur Roblox).`)] });
         }
+
+        const existing = await Ban.findOne({ robloxUsername: username.toLowerCase(), game, active: true });
 
         const changeId = interaction.id + '-' + Date.now();
         pendingChanges.set(changeId, {
