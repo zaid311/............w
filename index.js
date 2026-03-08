@@ -12,13 +12,18 @@ const app = express();
 app.use(express.json());
 app.get('/', (req, res) => res.send('Bot is running!'));
 
-// Secret key to verify requests come from your Roblox game
 const API_SECRET = process.env.API_SECRET || 'stradaz-secret-key';
+
+// ─── Bot Ready Flag ───────────────────────────────────────────────────────────
+
+let botReady = false;
 
 // ─── Modcall Endpoint ─────────────────────────────────────────────────────────
 
 app.post('/modcall', async (req, res) => {
   try {
+    if (!botReady) return res.status(503).json({ error: 'Bot not ready yet' });
+
     const { secret, content, embeds, modcall_meta } = req.body;
     if (secret !== API_SECRET) return res.status(401).json({ error: 'Unauthorized' });
 
@@ -109,23 +114,22 @@ app.listen(process.env.PORT || 3020, () => console.log('Web server running'));
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
-const DISCORD_TOKEN         = process.env.DISCORD_TOKEN;
-const CLIENT_ID             = process.env.CLIENT_ID;
-const GUILD_ID              = process.env.GUILD_ID;
-const ROBLOX_COOKIE         = process.env.ROBLOX_COOKIE;
-const GROUP_ID              = '11350952';
-const GAME_ID               = '7968913182';
-const LOG_CHANNEL_ID        = process.env.LOG_CHANNEL_ID;
-const MONGODB_URI           = process.env.MONGODB_URI;
-const STAFF_ROLE_ID         = process.env.STAFF_ROLE_ID;
-const OPEN_CLOUD_API_KEY    = process.env.OPEN_CLOUD_API_KEY;
-const MAIN_UNIVERSE_ID      = process.env.MAIN_UNIVERSE_ID;
-const TRAINING_UNIVERSE_ID  = process.env.TRAINING_UNIVERSE_ID;
+const DISCORD_TOKEN        = process.env.DISCORD_TOKEN;
+const CLIENT_ID            = process.env.CLIENT_ID;
+const GUILD_ID             = process.env.GUILD_ID;
+const ROBLOX_COOKIE        = process.env.ROBLOX_COOKIE;
+const GROUP_ID             = '11350952';
+const GAME_ID              = '7968913182';
+const LOG_CHANNEL_ID       = process.env.LOG_CHANNEL_ID;
+const MONGODB_URI          = process.env.MONGODB_URI;
+const OPEN_CLOUD_API_KEY   = process.env.OPEN_CLOUD_API_KEY;
+const MAIN_UNIVERSE_ID     = process.env.MAIN_UNIVERSE_ID;
+const TRAINING_UNIVERSE_ID = process.env.TRAINING_UNIVERSE_ID;
 
 console.log('TOKEN:', DISCORD_TOKEN ? 'OK' : 'MISSING');
 console.log('MONGODB:', MONGODB_URI ? 'OK' : 'MISSING');
 console.log('OPEN CLOUD KEY:', OPEN_CLOUD_API_KEY ? 'OK' : 'MISSING');
-console.log('[DEBUG] GROUP_ID:', GROUP_ID);
+console.log('MODCALL CHANNEL:', process.env.MODCALL_CHANNEL_ID ? 'OK' : 'MISSING');
 
 const IMAGE = 'https://gpi.hyra.io/11350952/icon';
 
@@ -174,13 +178,11 @@ process.on('unhandledRejection', err => console.error('Unhandled:', err));
 // ─── Roblox Helpers ───────────────────────────────────────────────────────────
 
 async function getRobloxUserByUsername(username) {
-  console.log(`[getRobloxUserByUsername] Looking up: "${username}"`);
   const res = await axios.post('https://users.roblox.com/v1/usernames/users', {
     usernames: [username], excludeBannedUsers: false
   });
   const user = res.data.data[0];
   if (!user) throw new Error(`Utilisateur "${username}" introuvable sur Roblox.`);
-  console.log(`[getRobloxUserByUsername] Found: id=${user.id}, name=${user.name}`);
   return user;
 }
 
@@ -236,32 +238,22 @@ async function getGamePasses() {
 
 async function userOwnsGamePass(userId, gamePassId) {
   try {
-    const res = await axios.get(
-      `https://inventory.roblox.com/v1/users/${userId}/items/GamePass/${gamePassId}`
-    );
+    const res = await axios.get(`https://inventory.roblox.com/v1/users/${userId}/items/GamePass/${gamePassId}`);
     return res.data.data && res.data.data.length > 0;
-  } catch {
-    return false;
-  }
+  } catch { return false; }
 }
 
-// ─── Ban via Roblox Open Cloud API ────────────────────────────────────────────
+// ─── Roblox Open Cloud Ban/Unban ──────────────────────────────────────────────
 
 async function banFromRoblox(userId, universeId, reason) {
   const url = `https://apis.roblox.com/cloud/v2/universes/${universeId}/user-restrictions/${userId}`;
   const res = await fetch(url, {
     method: 'PATCH',
-    headers: {
-      'x-api-key':    OPEN_CLOUD_API_KEY,
-      'Content-Type': 'application/json',
-    },
+    headers: { 'x-api-key': OPEN_CLOUD_API_KEY, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       gameJoinRestriction: {
-        active:             true,
-        duration:           null,
-        privateReason:      reason,
-        displayReason:      reason,
-        excludeAltAccounts: false,
+        active: true, duration: null,
+        privateReason: reason, displayReason: reason, excludeAltAccounts: false,
       },
     }),
   });
@@ -274,15 +266,8 @@ async function unbanFromRoblox(userId, universeId) {
   const url = `https://apis.roblox.com/cloud/v2/universes/${universeId}/user-restrictions/${userId}`;
   const res = await fetch(url, {
     method: 'PATCH',
-    headers: {
-      'x-api-key':    OPEN_CLOUD_API_KEY,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      gameJoinRestriction: {
-        active: false,
-      },
-    }),
+    headers: { 'x-api-key': OPEN_CLOUD_API_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ gameJoinRestriction: { active: false } }),
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data?.message || `Open Cloud error: ${res.status}`);
@@ -329,7 +314,6 @@ const HR_ROLE_IDS    = process.env.HR_ROLE_IDS
 function hasPermission(member) {
   return STAFF_ROLE_IDS.some(id => member.roles.cache.has(id));
 }
-
 function hasHRPermission(member) {
   return HR_ROLE_IDS.some(id => member.roles.cache.has(id));
 }
@@ -383,25 +367,15 @@ const commands = [
     .addStringOption(o => o.setName('gamepass').setDescription('Nom (ou partie du nom) du gamepass').setRequired(true)),
   new SlashCommandBuilder()
     .setName('rban')
-    .setDescription('Bannir ou débannir un joueur du jeu principal ou du centre de formation.')
+    .setDescription('Bannir ou debannir un joueur du jeu principal ou du centre de formation.')
     .addStringOption(o =>
-      o.setName('type')
-       .setDescription('Ban ou Unban ?')
-       .setRequired(true)
-       .addChoices(
-         { name: 'Ban',   value: 'ban'   },
-         { name: 'Unban', value: 'unban' },
-       ))
-    .addStringOption(o => o.setName('username').setDescription('Nom d\'utilisateur Roblox').setRequired(true))
+      o.setName('type').setDescription('Ban ou Unban ?').setRequired(true)
+       .addChoices({ name: 'Ban', value: 'ban' }, { name: 'Unban', value: 'unban' }))
+    .addStringOption(o => o.setName('username').setDescription("Nom d'utilisateur Roblox").setRequired(true))
     .addStringOption(o =>
-      o.setName('game')
-       .setDescription('Quel jeu ?')
-       .setRequired(true)
-       .addChoices(
-         { name: 'Main Game',       value: 'main'     },
-         { name: 'Training Center', value: 'training' },
-       ))
-    .addStringOption(o => o.setName('reason').setDescription('Raison (obligatoire pour ban, optionnel pour unban)').setRequired(false)),
+      o.setName('game').setDescription('Quel jeu ?').setRequired(true)
+       .addChoices({ name: 'Main Game', value: 'main' }, { name: 'Training Center', value: 'training' }))
+    .addStringOption(o => o.setName('reason').setDescription('Raison').setRequired(false)),
 ];
 
 async function registerCommands() {
@@ -412,7 +386,7 @@ async function registerCommands() {
   console.log('Commandes enregistrees.');
 }
 
-// ─── Interaction Handler ──────────────────────────────────────────────────────
+// ─── Pending Changes Map ──────────────────────────────────────────────────────
 
 const pendingChanges = new Map();
 
@@ -423,11 +397,15 @@ async function safeDefer(interaction, options = {}) {
   } catch { return false; }
 }
 
+// ─── Interaction Handler ──────────────────────────────────────────────────────
+
 client.on('interactionCreate', async interaction => {
+
+  // ── Button Handler ────────────────────────────────────────────────────────────
   if (interaction.isButton()) {
     const customId = interaction.customId;
 
-    // ── Claim modcall button ─────────────────────────────────────────────────
+    // ── Claim modcall button ───────────────────────────────────────────────────
     if (customId.startsWith('claim_modcall::')) {
       const jobId = customId.split('::')[1];
 
@@ -448,7 +426,7 @@ client.on('interactionCreate', async interaction => {
       return;
     }
 
-    // ── All other buttons ────────────────────────────────────────────────────
+    // ── All other buttons ──────────────────────────────────────────────────────
     const [action, changeId] = customId.split('::');
     const pending = pendingChanges.get(changeId);
     if (!pending) return interaction.reply({ embeds: [errorEmbed('Confirmation expiree.')], ephemeral: true });
@@ -457,6 +435,7 @@ client.on('interactionCreate', async interaction => {
 
     if (action === 'annuler') return interaction.update({ embeds: [baseEmbed().setDescription('Action annulee.')], components: [] });
 
+    // ── Confirm rank change ────────────────────────────────────────────────────
     if (action === 'confirmer') {
       await interaction.deferUpdate();
       try {
@@ -480,25 +459,31 @@ client.on('interactionCreate', async interaction => {
           { name: 'Raison', value: pending.reason || 'Aucune' },
           { name: 'Effectue par', value: '<@' + pending.requesterId + '>' }
         ));
-        const label = pending.auditAction === 'PROMOTE' ? 'Promotion reussie' : pending.auditAction === 'DEMOTE' ? 'Retrogradation reussie' : 'Rang modifie';
-        return interaction.editReply({ embeds: [baseEmbed().setDescription(label).addFields(
-          { name: 'Utilisateur', value: pending.robloxUser.name },
-          { name: 'Ancien rang', value: oldName, inline: true },
-          { name: 'Nouveau rang', value: newName, inline: true },
-          { name: 'Raison', value: pending.reason || 'Aucune' },
-          { name: 'Modifie par', value: '<@' + pending.requesterId + '>' }
-        )], components: [] });
+        const label = pending.auditAction === 'PROMOTE' ? 'Promotion reussie'
+          : pending.auditAction === 'DEMOTE' ? 'Retrogradation reussie' : 'Rang modifie';
+        return interaction.editReply({
+          embeds: [baseEmbed().setDescription(label).addFields(
+            { name: 'Utilisateur', value: pending.robloxUser.name },
+            { name: 'Ancien rang', value: oldName, inline: true },
+            { name: 'Nouveau rang', value: newName, inline: true },
+            { name: 'Raison', value: pending.reason || 'Aucune' },
+            { name: 'Modifie par', value: '<@' + pending.requesterId + '>' }
+          )],
+          components: []
+        });
       } catch (err) {
         return interaction.editReply({ embeds: [errorEmbed('Echec : ' + err.message)], components: [] });
       }
     }
 
+    // ── Confirm clear log ──────────────────────────────────────────────────────
     if (action === 'confirmer_clearlog') {
       await interaction.deferUpdate();
       await RankLog.deleteMany({});
       return interaction.editReply({ embeds: [baseEmbed().setDescription('Journal efface.')], components: [] });
     }
 
+    // ── Confirm ban/unban ──────────────────────────────────────────────────────
     if (action === 'confirmer_ban') {
       await interaction.deferUpdate();
       try {
@@ -511,33 +496,23 @@ client.on('interactionCreate', async interaction => {
             { active: false }
           );
           await sendLogToChannel(
-            new EmbedBuilder()
-              .setTitle('🔓 Joueur Débanni')
-              .setColor(0x2ecc71)
-              .setThumbnail(IMAGE)
+            new EmbedBuilder().setTitle('🔓 Joueur Debanni').setColor(0x2ecc71).setThumbnail(IMAGE)
               .addFields(
-                { name: 'Utilisateur',  value: username,  inline: true },
-                { name: 'Jeu',          value: gameLabel, inline: true },
-                { name: 'Débanni par',  value: '<@' + interaction.user.id + '>', inline: true },
-                { name: 'Raison',       value: reason },
-              )
-              .setTimestamp()
-              .setFooter({ text: 'Stradaz Cafe - Systeme de Bannissement', iconURL: IMAGE })
+                { name: 'Utilisateur', value: username, inline: true },
+                { name: 'Jeu', value: gameLabel, inline: true },
+                { name: 'Debanni par', value: '<@' + interaction.user.id + '>', inline: true },
+                { name: 'Raison', value: reason },
+              ).setTimestamp().setFooter({ text: 'Stradaz Cafe - Systeme de Bannissement', iconURL: IMAGE })
           );
           return interaction.editReply({
             embeds: [
-              new EmbedBuilder()
-                .setTitle('🔓 Débannissement Confirmé')
-                .setColor(0x2ecc71)
-                .setThumbnail(IMAGE)
+              new EmbedBuilder().setTitle('🔓 Debannissement Confirme').setColor(0x2ecc71).setThumbnail(IMAGE)
                 .addFields(
-                  { name: 'Utilisateur', value: username,  inline: true },
-                  { name: 'Jeu',         value: gameLabel, inline: true },
-                  { name: 'Raison',      value: reason },
-                  { name: 'Débanni par', value: '<@' + interaction.user.id + '>' },
-                )
-                .setTimestamp()
-                .setFooter({ text: 'Stradaz Cafe - Systeme de Bannissement', iconURL: IMAGE })
+                  { name: 'Utilisateur', value: username, inline: true },
+                  { name: 'Jeu', value: gameLabel, inline: true },
+                  { name: 'Raison', value: reason },
+                  { name: 'Debanni par', value: '<@' + interaction.user.id + '>' },
+                ).setTimestamp().setFooter({ text: 'Stradaz Cafe - Systeme de Bannissement', iconURL: IMAGE })
             ],
             components: [],
           });
@@ -545,40 +520,29 @@ client.on('interactionCreate', async interaction => {
           await banFromRoblox(userId, universeId, reason);
           await Ban.create({
             robloxUsername: username.toLowerCase(),
-            robloxUserId:   String(userId),
-            game,
-            reason,
-            bannedBy:   interaction.user.tag,
+            robloxUserId: String(userId),
+            game, reason,
+            bannedBy: interaction.user.tag,
             bannedById: interaction.user.id,
           });
           await sendLogToChannel(
-            new EmbedBuilder()
-              .setTitle('🔨 Joueur Banni')
-              .setColor(0xff4444)
-              .setThumbnail(IMAGE)
+            new EmbedBuilder().setTitle('🔨 Joueur Banni').setColor(0xff4444).setThumbnail(IMAGE)
               .addFields(
-                { name: 'Utilisateur', value: username,    inline: true },
-                { name: 'Jeu',         value: gameLabel,   inline: true },
-                { name: 'Banni par',   value: '<@' + interaction.user.id + '>', inline: true },
-                { name: 'Raison',      value: reason },
-              )
-              .setTimestamp()
-              .setFooter({ text: 'Stradaz Cafe - Systeme de Bannissement', iconURL: IMAGE })
+                { name: 'Utilisateur', value: username, inline: true },
+                { name: 'Jeu', value: gameLabel, inline: true },
+                { name: 'Banni par', value: '<@' + interaction.user.id + '>', inline: true },
+                { name: 'Raison', value: reason },
+              ).setTimestamp().setFooter({ text: 'Stradaz Cafe - Systeme de Bannissement', iconURL: IMAGE })
           );
           return interaction.editReply({
             embeds: [
-              new EmbedBuilder()
-                .setTitle('🔨 Bannissement Confirmé')
-                .setColor(0xff4444)
-                .setThumbnail(IMAGE)
+              new EmbedBuilder().setTitle('🔨 Bannissement Confirme').setColor(0xff4444).setThumbnail(IMAGE)
                 .addFields(
-                  { name: 'Utilisateur', value: username,  inline: true },
-                  { name: 'Jeu',         value: gameLabel, inline: true },
-                  { name: 'Raison',      value: reason },
-                  { name: 'Banni par',   value: '<@' + interaction.user.id + '>' },
-                )
-                .setTimestamp()
-                .setFooter({ text: 'Stradaz Cafe - Systeme de Bannissement', iconURL: IMAGE })
+                  { name: 'Utilisateur', value: username, inline: true },
+                  { name: 'Jeu', value: gameLabel, inline: true },
+                  { name: 'Raison', value: reason },
+                  { name: 'Banni par', value: '<@' + interaction.user.id + '>' },
+                ).setTimestamp().setFooter({ text: 'Stradaz Cafe - Systeme de Bannissement', iconURL: IMAGE })
             ],
             components: [],
           });
@@ -594,7 +558,7 @@ client.on('interactionCreate', async interaction => {
   if (!interaction.isChatInputCommand()) return;
   const { commandName } = interaction;
 
-  // ── /checkrank ──────────────────────────────────────────────────────────────
+  // ── /checkrank ───────────────────────────────────────────────────────────────
   if (commandName === 'checkrank') {
     const ok = await safeDefer(interaction);
     if (!ok) return;
@@ -613,7 +577,7 @@ client.on('interactionCreate', async interaction => {
     } catch (err) { return interaction.editReply({ embeds: [errorEmbed(err.message)] }); }
   }
 
-  // ── /promote ────────────────────────────────────────────────────────────────
+  // ── /promote ──────────────────────────────────────────────────────────────────
   if (commandName === 'promote') {
     if (!hasPermission(interaction.member)) return interaction.reply({ embeds: [errorEmbed('Permission refusee.')], ephemeral: true });
     const ok = await safeDefer(interaction);
@@ -644,7 +608,7 @@ client.on('interactionCreate', async interaction => {
     } catch (err) { return interaction.editReply({ embeds: [errorEmbed(err.message)] }); }
   }
 
-  // ── /demote ─────────────────────────────────────────────────────────────────
+  // ── /demote ───────────────────────────────────────────────────────────────────
   if (commandName === 'demote') {
     if (!hasPermission(interaction.member)) return interaction.reply({ embeds: [errorEmbed('Permission refusee.')], ephemeral: true });
     const ok = await safeDefer(interaction);
@@ -675,7 +639,7 @@ client.on('interactionCreate', async interaction => {
     } catch (err) { return interaction.editReply({ embeds: [errorEmbed(err.message)] }); }
   }
 
-  // ── /setrank ────────────────────────────────────────────────────────────────
+  // ── /setrank ──────────────────────────────────────────────────────────────────
   if (commandName === 'setrank') {
     if (!hasPermission(interaction.member)) return interaction.reply({ embeds: [errorEmbed('Permission refusee.')], ephemeral: true });
     const ok = await safeDefer(interaction);
@@ -703,7 +667,7 @@ client.on('interactionCreate', async interaction => {
     } catch (err) { return interaction.editReply({ embeds: [errorEmbed(err.message)] }); }
   }
 
-  // ── /ranklog ────────────────────────────────────────────────────────────────
+  // ── /ranklog ──────────────────────────────────────────────────────────────────
   if (commandName === 'ranklog') {
     const page = Math.max(1, interaction.options.getInteger('page') || 1);
     const PER_PAGE = 10;
@@ -719,7 +683,7 @@ client.on('interactionCreate', async interaction => {
     return interaction.reply({ embeds: [baseEmbed().setDescription('**Journal des rangs - Page ' + pageNum + '/' + totalPages + '**\n\n' + lines).setFooter({ text: 'Stradaz Cafe - ' + total + ' entrees au total', iconURL: IMAGE })] });
   }
 
-  // ── /logstats ───────────────────────────────────────────────────────────────
+  // ── /logstats ─────────────────────────────────────────────────────────────────
   if (commandName === 'logstats') {
     const total = await RankLog.countDocuments();
     if (!total) return interaction.reply({ embeds: [baseEmbed().setDescription('Aucun journal.')] });
@@ -735,7 +699,7 @@ client.on('interactionCreate', async interaction => {
     )] });
   }
 
-  // ── /clearlog ───────────────────────────────────────────────────────────────
+  // ── /clearlog ─────────────────────────────────────────────────────────────────
   if (commandName === 'clearlog') {
     if (!hasPermission(interaction.member)) return interaction.reply({ embeds: [errorEmbed('Permission refusee.')], ephemeral: true });
     const changeId = interaction.id + '-' + Date.now();
@@ -748,7 +712,7 @@ client.on('interactionCreate', async interaction => {
     return interaction.reply({ embeds: [baseEmbed().setDescription('Etes-vous sur de vouloir effacer tout le journal ? Action irreversible.')], components: [row], ephemeral: true });
   }
 
-  // ── /own ────────────────────────────────────────────────────────────────────
+  // ── /own ──────────────────────────────────────────────────────────────────────
   if (commandName === 'own') {
     const ok = await safeDefer(interaction);
     if (!ok) return;
@@ -767,7 +731,7 @@ client.on('interactionCreate', async interaction => {
       const owns = await userOwnsGamePass(robloxUser.id, gamePass.id);
       const avatar = await getRobloxAvatar(robloxUser.id);
       const statusEmoji = owns ? '✅' : '❌';
-      const statusText  = owns
+      const statusText = owns
         ? robloxUser.name + ' possede ce gamepass.'
         : robloxUser.name + ' ne possede pas ce gamepass.';
       const embed = baseEmbed()
@@ -788,53 +752,46 @@ client.on('interactionCreate', async interaction => {
     } catch (err) { return interaction.editReply({ embeds: [errorEmbed(err.message)] }); }
   }
 
-  // ── /rban ───────────────────────────────────────────────────────────────────
+  // ── /rban ─────────────────────────────────────────────────────────────────────
   if (commandName === 'rban') {
-    if (!hasHRPermission(interaction.member)) {
-      return interaction.reply({ embeds: [errorEmbed('Permission refusee. Commande reservee aux RH.')], ephemeral: true });
-    }
-    if (!OPEN_CLOUD_API_KEY) {
-      return interaction.reply({ embeds: [errorEmbed('OPEN_CLOUD_API_KEY manquant dans le fichier .env')], ephemeral: true });
-    }
+    if (!hasHRPermission(interaction.member)) return interaction.reply({ embeds: [errorEmbed('Permission refusee. Commande reservee aux RH.')], ephemeral: true });
+    if (!OPEN_CLOUD_API_KEY) return interaction.reply({ embeds: [errorEmbed('OPEN_CLOUD_API_KEY manquant dans le fichier .env')], ephemeral: true });
+
     const type       = interaction.options.getString('type');
     const username   = interaction.options.getString('username');
     const game       = interaction.options.getString('game');
     const reason     = interaction.options.getString('reason') || 'Aucune raison fournie';
     const gameLabel  = game === 'main' ? 'Main Game' : 'Training Center';
     const universeId = game === 'main' ? MAIN_UNIVERSE_ID : TRAINING_UNIVERSE_ID;
-    if (!universeId) {
-      return interaction.reply({ embeds: [errorEmbed(`Universe ID pour **${gameLabel}** manquant dans le fichier .env`)], ephemeral: true });
-    }
+
+    if (!universeId) return interaction.reply({ embeds: [errorEmbed(`Universe ID pour **${gameLabel}** manquant dans le fichier .env`)], ephemeral: true });
+
     const ok = await safeDefer(interaction);
     if (!ok) return;
+
     try {
       const robloxUser = await getRobloxUserByUsername(username);
       const [dbBan, isBannedInGame] = await Promise.all([
         Ban.findOne({ robloxUsername: username.toLowerCase(), game, active: true }),
         getRobloxBanStatus(robloxUser.id, universeId),
       ]);
+
       if (isBannedInGame && !dbBan) {
         await Ban.create({
           robloxUsername: username.toLowerCase(),
-          robloxUserId:   String(robloxUser.id),
-          game,
-          reason:    'Ban detecte en jeu (sync automatique)',
-          bannedBy:  'Roblox',
-          bannedById: '0',
+          robloxUserId: String(robloxUser.id),
+          game, reason: 'Ban detecte en jeu (sync automatique)',
+          bannedBy: 'Roblox', bannedById: '0',
         });
       }
       if (!isBannedInGame && dbBan) {
-        await Ban.findOneAndUpdate(
-          { robloxUsername: username.toLowerCase(), game, active: true },
-          { active: false }
-        );
+        await Ban.findOneAndUpdate({ robloxUsername: username.toLowerCase(), game, active: true }, { active: false });
       }
+
       const actuallyBanned = isBannedInGame;
 
       if (type === 'ban') {
-        if (actuallyBanned) {
-          return interaction.editReply({ embeds: [errorEmbed(`**${username}** est **déjà banni** du **${gameLabel}** (vérifié sur Roblox).\n> Raison enregistrée : ${dbBan?.reason || 'Inconnue'}`)] });
-        }
+        if (actuallyBanned) return interaction.editReply({ embeds: [errorEmbed(`**${username}** est **deja banni** du **${gameLabel}**.\n> Raison : ${dbBan?.reason || 'Inconnue'}`)] });
         const changeId = interaction.id + '-' + Date.now();
         pendingChanges.set(changeId, { type: 'ban', username, userId: robloxUser.id, game, reason, gameLabel, universeId, requesterId: interaction.user.id });
         setTimeout(() => pendingChanges.delete(changeId), 60000);
@@ -843,28 +800,19 @@ client.on('interactionCreate', async interaction => {
           new ButtonBuilder().setCustomId('annuler::' + changeId).setLabel('Annuler').setStyle(ButtonStyle.Secondary)
         );
         return interaction.editReply({
-          embeds: [
-            new EmbedBuilder()
-              .setTitle('🔨 Confirmer le Bannissement')
-              .setColor(0xff8800)
-              .setThumbnail(IMAGE)
-              .setDescription('Etes-vous sur de vouloir bannir **definitivement** ce joueur ?')
-              .addFields(
-                { name: 'Utilisateur', value: username,  inline: true },
-                { name: 'Jeu',         value: gameLabel, inline: true },
-                { name: 'Raison',      value: reason },
-              )
-              .setTimestamp()
-              .setFooter({ text: 'Stradaz Cafe - Systeme de Bannissement', iconURL: IMAGE })
-          ],
+          embeds: [new EmbedBuilder().setTitle('🔨 Confirmer le Bannissement').setColor(0xff8800).setThumbnail(IMAGE)
+            .setDescription('Etes-vous sur de vouloir bannir **definitivement** ce joueur ?')
+            .addFields(
+              { name: 'Utilisateur', value: username, inline: true },
+              { name: 'Jeu', value: gameLabel, inline: true },
+              { name: 'Raison', value: reason },
+            ).setTimestamp().setFooter({ text: 'Stradaz Cafe - Systeme de Bannissement', iconURL: IMAGE })],
           components: [row],
         });
       }
 
       if (type === 'unban') {
-        if (!actuallyBanned) {
-          return interaction.editReply({ embeds: [errorEmbed(`**${username}** n'est **pas banni** du **${gameLabel}** (vérifié sur Roblox).`)] });
-        }
+        if (!actuallyBanned) return interaction.editReply({ embeds: [errorEmbed(`**${username}** n'est **pas banni** du **${gameLabel}**.`)] });
         const existing = await Ban.findOne({ robloxUsername: username.toLowerCase(), game, active: true });
         const changeId = interaction.id + '-' + Date.now();
         pendingChanges.set(changeId, { type: 'unban', username, userId: robloxUser.id, game, reason, gameLabel, universeId, requesterId: interaction.user.id });
@@ -874,21 +822,14 @@ client.on('interactionCreate', async interaction => {
           new ButtonBuilder().setCustomId('annuler::' + changeId).setLabel('Annuler').setStyle(ButtonStyle.Secondary)
         );
         return interaction.editReply({
-          embeds: [
-            new EmbedBuilder()
-              .setTitle('🔓 Confirmer le Débannissement')
-              .setColor(0x2ecc71)
-              .setThumbnail(IMAGE)
-              .setDescription('Etes-vous sur de vouloir débannir ce joueur ?')
-              .addFields(
-                { name: 'Utilisateur',   value: username,          inline: true },
-                { name: 'Jeu',           value: gameLabel,         inline: true },
-                { name: 'Banni pour',    value: existing?.reason ?? 'Inconnue', inline: false },
-                { name: 'Raison unban',  value: reason,            inline: false },
-              )
-              .setTimestamp()
-              .setFooter({ text: 'Stradaz Cafe - Systeme de Bannissement', iconURL: IMAGE })
-          ],
+          embeds: [new EmbedBuilder().setTitle('🔓 Confirmer le Debannissement').setColor(0x2ecc71).setThumbnail(IMAGE)
+            .setDescription('Etes-vous sur de vouloir debannir ce joueur ?')
+            .addFields(
+              { name: 'Utilisateur', value: username, inline: true },
+              { name: 'Jeu', value: gameLabel, inline: true },
+              { name: 'Banni pour', value: existing?.reason ?? 'Inconnue', inline: false },
+              { name: 'Raison unban', value: reason, inline: false },
+            ).setTimestamp().setFooter({ text: 'Stradaz Cafe - Systeme de Bannissement', iconURL: IMAGE })],
           components: [row],
         });
       }
@@ -900,6 +841,7 @@ client.on('interactionCreate', async interaction => {
 
 client.once('ready', async () => {
   console.log('Connecte en tant que ' + client.user.tag);
+  botReady = true;
   client.user.setActivity('Stradaz Cafe', { type: ActivityType.Watching });
   await registerCommands();
   console.log('Bot pret.');
