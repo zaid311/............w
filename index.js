@@ -15,6 +15,38 @@ app.get('/', (req, res) => res.send('Bot is running!'));
 // Secret key to verify requests come from your Roblox game
 const API_SECRET = process.env.API_SECRET || 'stradaz-secret-key';
 
+// ─── Modcall Endpoint ─────────────────────────────────────────────────────────
+
+app.post('/modcall', async (req, res) => {
+  try {
+    const { secret, content, embeds, modcall_meta } = req.body;
+    if (secret !== API_SECRET) return res.status(401).json({ error: 'Unauthorized' });
+
+    const channel = await client.channels.fetch(process.env.MODCALL_CHANNEL_ID);
+    if (!channel) return res.status(404).json({ error: 'Channel not found' });
+
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId('claim_modcall::' + modcall_meta.job_id)
+        .setLabel('✅ Prendre en charge')
+        .setStyle(ButtonStyle.Success)
+    );
+
+    await channel.send({
+      content: content,
+      embeds: embeds,
+      components: [row],
+    });
+
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error('Modcall error:', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── Promote Endpoint ─────────────────────────────────────────────────────────
+
 app.post('/promote', async (req, res) => {
   try {
     const { username, secret } = req.body;
@@ -42,6 +74,8 @@ app.post('/promote', async (req, res) => {
     return res.status(500).json({ error: err.message });
   }
 });
+
+// ─── Demote Endpoint ──────────────────────────────────────────────────────────
 
 app.post('/demote', async (req, res) => {
   try {
@@ -72,6 +106,8 @@ app.post('/demote', async (req, res) => {
 });
 
 app.listen(process.env.PORT || 3020, () => console.log('Web server running'));
+
+// ─── Config ───────────────────────────────────────────────────────────────────
 
 const DISCORD_TOKEN         = process.env.DISCORD_TOKEN;
 const CLIENT_ID             = process.env.CLIENT_ID;
@@ -222,7 +258,7 @@ async function banFromRoblox(userId, universeId, reason) {
     body: JSON.stringify({
       gameJoinRestriction: {
         active:             true,
-        duration:           null,   // null = permanent
+        duration:           null,
         privateReason:      reason,
         displayReason:      reason,
         excludeAltAccounts: false,
@@ -252,8 +288,6 @@ async function unbanFromRoblox(userId, universeId) {
   if (!res.ok) throw new Error(data?.message || `Open Cloud error: ${res.status}`);
   return data;
 }
-
-// ─── Check Roblox Ban Status via Open Cloud ───────────────────────────────────
 
 async function getRobloxBanStatus(userId, universeId) {
   const url = `https://apis.roblox.com/cloud/v2/universes/${universeId}/user-restrictions/${userId}`;
@@ -290,7 +324,7 @@ function errorEmbed(description) {
 const STAFF_ROLE_IDS = ['1471184058577850623', '1469859492249473219'];
 const HR_ROLE_IDS    = process.env.HR_ROLE_IDS
   ? process.env.HR_ROLE_IDS.split(',')
-  : STAFF_ROLE_IDS; // falls back to staff roles if not set
+  : STAFF_ROLE_IDS;
 
 function hasPermission(member) {
   return STAFF_ROLE_IDS.some(id => member.roles.cache.has(id));
@@ -347,8 +381,6 @@ const commands = [
     .setDescription("Verifier si un utilisateur possede un gamepass du jeu Stradaz Cafe.")
     .addStringOption(o => o.setName('username').setDescription("Nom d'utilisateur Roblox").setRequired(true))
     .addStringOption(o => o.setName('gamepass').setDescription('Nom (ou partie du nom) du gamepass').setRequired(true)),
-
-  // ── /rban command ────────────────────────────────────────────────────────────
   new SlashCommandBuilder()
     .setName('rban')
     .setDescription('Bannir ou débannir un joueur du jeu principal ou du centre de formation.')
@@ -393,7 +425,31 @@ async function safeDefer(interaction, options = {}) {
 
 client.on('interactionCreate', async interaction => {
   if (interaction.isButton()) {
-    const [action, changeId] = interaction.customId.split('::');
+    const customId = interaction.customId;
+
+    // ── Claim modcall button ─────────────────────────────────────────────────
+    if (customId.startsWith('claim_modcall::')) {
+      const jobId = customId.split('::')[1];
+
+      const updatedRow = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId('claimed_disabled')
+          .setLabel(`✅ Pris en charge par ${interaction.user.username}`)
+          .setStyle(ButtonStyle.Secondary)
+          .setDisabled(true)
+      );
+
+      await interaction.update({ components: [updatedRow] });
+
+      await interaction.followUp({
+        content: `<@${interaction.user.id}> a pris en charge le modcall du serveur \`${jobId}\``,
+      });
+
+      return;
+    }
+
+    // ── All other buttons ────────────────────────────────────────────────────
+    const [action, changeId] = customId.split('::');
     const pending = pendingChanges.get(changeId);
     if (!pending) return interaction.reply({ embeds: [errorEmbed('Confirmation expiree.')], ephemeral: true });
     if (interaction.user.id !== pending.requesterId) return interaction.reply({ embeds: [errorEmbed('Seulement la personne qui a lance la commande peut confirmer.')], ephemeral: true });
@@ -443,22 +499,17 @@ client.on('interactionCreate', async interaction => {
       return interaction.editReply({ embeds: [baseEmbed().setDescription('Journal efface.')], components: [] });
     }
 
-    // ── Confirm ban/unban button ─────────────────────────────────────────────
     if (action === 'confirmer_ban') {
       await interaction.deferUpdate();
       try {
         const { type, username, userId, game, reason, gameLabel, universeId } = pending;
 
         if (type === 'unban') {
-          // Unban via Roblox Open Cloud
           await unbanFromRoblox(userId, universeId);
-
-          // Mark as inactive in MongoDB
           await Ban.findOneAndUpdate(
             { robloxUsername: username.toLowerCase(), game, active: true },
             { active: false }
           );
-
           await sendLogToChannel(
             new EmbedBuilder()
               .setTitle('🔓 Joueur Débanni')
@@ -473,7 +524,6 @@ client.on('interactionCreate', async interaction => {
               .setTimestamp()
               .setFooter({ text: 'Stradaz Cafe - Systeme de Bannissement', iconURL: IMAGE })
           );
-
           return interaction.editReply({
             embeds: [
               new EmbedBuilder()
@@ -491,11 +541,8 @@ client.on('interactionCreate', async interaction => {
             ],
             components: [],
           });
-
         } else {
-          // Ban via Roblox Open Cloud
           await banFromRoblox(userId, universeId, reason);
-
           await Ban.create({
             robloxUsername: username.toLowerCase(),
             robloxUserId:   String(userId),
@@ -504,7 +551,6 @@ client.on('interactionCreate', async interaction => {
             bannedBy:   interaction.user.tag,
             bannedById: interaction.user.id,
           });
-
           await sendLogToChannel(
             new EmbedBuilder()
               .setTitle('🔨 Joueur Banni')
@@ -519,7 +565,6 @@ client.on('interactionCreate', async interaction => {
               .setTimestamp()
               .setFooter({ text: 'Stradaz Cafe - Systeme de Bannissement', iconURL: IMAGE })
           );
-
           return interaction.editReply({
             embeds: [
               new EmbedBuilder()
@@ -538,7 +583,6 @@ client.on('interactionCreate', async interaction => {
             components: [],
           });
         }
-
       } catch (err) {
         return interaction.editReply({ embeds: [errorEmbed('Echec : ' + err.message)], components: [] });
       }
@@ -746,41 +790,29 @@ client.on('interactionCreate', async interaction => {
 
   // ── /rban ───────────────────────────────────────────────────────────────────
   if (commandName === 'rban') {
-    // Permission check — HR only
     if (!hasHRPermission(interaction.member)) {
       return interaction.reply({ embeds: [errorEmbed('Permission refusee. Commande reservee aux RH.')], ephemeral: true });
     }
-
-    // Config check
     if (!OPEN_CLOUD_API_KEY) {
       return interaction.reply({ embeds: [errorEmbed('OPEN_CLOUD_API_KEY manquant dans le fichier .env')], ephemeral: true });
     }
-
-    const type       = interaction.options.getString('type');   // 'ban' or 'unban'
+    const type       = interaction.options.getString('type');
     const username   = interaction.options.getString('username');
     const game       = interaction.options.getString('game');
     const reason     = interaction.options.getString('reason') || 'Aucune raison fournie';
     const gameLabel  = game === 'main' ? 'Main Game' : 'Training Center';
     const universeId = game === 'main' ? MAIN_UNIVERSE_ID : TRAINING_UNIVERSE_ID;
-
     if (!universeId) {
       return interaction.reply({ embeds: [errorEmbed(`Universe ID pour **${gameLabel}** manquant dans le fichier .env`)], ephemeral: true });
     }
-
-    // Defer publicly so everyone in the channel can see
     const ok = await safeDefer(interaction);
     if (!ok) return;
-
     try {
       const robloxUser = await getRobloxUserByUsername(username);
-
-      // Check BOTH MongoDB and Roblox's actual ban status
       const [dbBan, isBannedInGame] = await Promise.all([
         Ban.findOne({ robloxUsername: username.toLowerCase(), game, active: true }),
         getRobloxBanStatus(robloxUser.id, universeId),
       ]);
-
-      // Sync MongoDB if out of date
       if (isBannedInGame && !dbBan) {
         await Ban.create({
           robloxUsername: username.toLowerCase(),
@@ -797,33 +829,19 @@ client.on('interactionCreate', async interaction => {
           { active: false }
         );
       }
-
       const actuallyBanned = isBannedInGame;
 
-      // ── BAN flow ──────────────────────────────────────────────────────────
       if (type === 'ban') {
         if (actuallyBanned) {
           return interaction.editReply({ embeds: [errorEmbed(`**${username}** est **déjà banni** du **${gameLabel}** (vérifié sur Roblox).\n> Raison enregistrée : ${dbBan?.reason || 'Inconnue'}`)] });
         }
-
         const changeId = interaction.id + '-' + Date.now();
-        pendingChanges.set(changeId, {
-          type: 'ban',
-          username,
-          userId: robloxUser.id,
-          game,
-          reason,
-          gameLabel,
-          universeId,
-          requesterId: interaction.user.id,
-        });
+        pendingChanges.set(changeId, { type: 'ban', username, userId: robloxUser.id, game, reason, gameLabel, universeId, requesterId: interaction.user.id });
         setTimeout(() => pendingChanges.delete(changeId), 60000);
-
         const row = new ActionRowBuilder().addComponents(
           new ButtonBuilder().setCustomId('confirmer_ban::' + changeId).setLabel('✅ Confirmer le Ban').setStyle(ButtonStyle.Danger),
           new ButtonBuilder().setCustomId('annuler::' + changeId).setLabel('Annuler').setStyle(ButtonStyle.Secondary)
         );
-
         return interaction.editReply({
           embeds: [
             new EmbedBuilder()
@@ -843,32 +861,18 @@ client.on('interactionCreate', async interaction => {
         });
       }
 
-      // ── UNBAN flow ────────────────────────────────────────────────────────
       if (type === 'unban') {
         if (!actuallyBanned) {
           return interaction.editReply({ embeds: [errorEmbed(`**${username}** n'est **pas banni** du **${gameLabel}** (vérifié sur Roblox).`)] });
         }
-
         const existing = await Ban.findOne({ robloxUsername: username.toLowerCase(), game, active: true });
-
         const changeId = interaction.id + '-' + Date.now();
-        pendingChanges.set(changeId, {
-          type: 'unban',
-          username,
-          userId: robloxUser.id,
-          game,
-          reason,
-          gameLabel,
-          universeId,
-          requesterId: interaction.user.id,
-        });
+        pendingChanges.set(changeId, { type: 'unban', username, userId: robloxUser.id, game, reason, gameLabel, universeId, requesterId: interaction.user.id });
         setTimeout(() => pendingChanges.delete(changeId), 60000);
-
         const row = new ActionRowBuilder().addComponents(
           new ButtonBuilder().setCustomId('confirmer_ban::' + changeId).setLabel('✅ Confirmer le Unban').setStyle(ButtonStyle.Success),
           new ButtonBuilder().setCustomId('annuler::' + changeId).setLabel('Annuler').setStyle(ButtonStyle.Secondary)
         );
-
         return interaction.editReply({
           embeds: [
             new EmbedBuilder()
@@ -879,7 +883,7 @@ client.on('interactionCreate', async interaction => {
               .addFields(
                 { name: 'Utilisateur',   value: username,          inline: true },
                 { name: 'Jeu',           value: gameLabel,         inline: true },
-                { name: 'Banni pour',    value: existing.reason,   inline: false },
+                { name: 'Banni pour',    value: existing?.reason ?? 'Inconnue', inline: false },
                 { name: 'Raison unban',  value: reason,            inline: false },
               )
               .setTimestamp()
@@ -888,7 +892,6 @@ client.on('interactionCreate', async interaction => {
           components: [row],
         });
       }
-
     } catch (err) { return interaction.editReply({ embeds: [errorEmbed(err.message)] }); }
   }
 });
