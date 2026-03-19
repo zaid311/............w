@@ -659,7 +659,7 @@ client.on('interactionCreate', async interaction => {
         .setCustomId('roblox_username')
         .setLabel('Nom d\'utilisateur Roblox')
         .setStyle(TextInputStyle.Short)
-        .setPlaceholder('ex: Zaid_Oblivion')
+        .setPlaceholder('ex: hibyehibye048')
         .setRequired(true)
         .setMaxLength(50);
 
