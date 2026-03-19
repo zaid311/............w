@@ -21,7 +21,7 @@ let botReady = false;
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const IMAGE          = 'https://gpi.hyra.io/11350952/icon';
-const WEBHOOK_URL    = 'https://discord.com/api/webhooks/1474317619808047206/4J4o_IjPVQbuB-bB09_-QmxGaXAJbflaZl2h3jD9dWxCF_3ShzzSamhSB54cdZ1peOF_';
+const WEBHOOK_URL    = 'https://discord.com/api/webhooks/1483999167297880154/dgxbDpf--b8h5Lj5onRdLAKNFDNzF7NOjez5IBQrRNszzOPPYrOQEITt9_ZPhlQc6E1A';
 const WEBHOOK_AVATAR = 'https://images-ext-1.discordapp.net/external/hkHQkFKZCF-yKOiqNTMle0sKFMKCTXdZmBG8BP36QhQ/https/gpi.hyra.io/11350952/icon?format=webp&width=315&height=315';
 const ALERT_CHANNEL_ID = '1483999123924324505';
 
@@ -79,7 +79,7 @@ app.post('/alertstaff', async (req, res) => {
             { name: '⚠️ Raison',   value: '```' + (reason || 'Aucune raison fournie') + '```', inline: false },
             { name: '👤 Joueur',   value: `**${player_name}** (ID: \`${player_id}\`)`,           inline: true  },
             { name: '🌐 Serveur',  value: `**${server_size || '?'}/${max_players || '?'}** joueurs`, inline: true },
-            { name: '🔗 Rejoindre', value: `[Cliquez ici pour rejoindre le serveur](${joinLink})`, inline: false },
+            { name: '🔗 Rejoindre', value: joinLink, inline: false },
           ],
           timestamp: new Date().toISOString(),
           footer: { text: "Stradaz Cafe – Système d'Alerte Staff", icon_url: WEBHOOK_AVATAR },
@@ -659,7 +659,7 @@ client.on('interactionCreate', async interaction => {
         .setCustomId('roblox_username')
         .setLabel('Nom d\'utilisateur Roblox')
         .setStyle(TextInputStyle.Short)
-        .setPlaceholder('ex: hibyehibye048')
+        .setPlaceholder('ex: Zaid_Oblivion')
         .setRequired(true)
         .setMaxLength(50);
 
@@ -1088,22 +1088,22 @@ client.on('interactionCreate', async interaction => {
       const memberAvatar = targetUser.displayAvatarURL({ dynamic: true });
 
       const embed = new EmbedBuilder()
-        .setTitle(`Statut — ${memberName}`)
+        .setTitle(`📊 Statut — ${memberName}`)
         .setColor(0x5865f2)
         .setThumbnail(memberAvatar)
         .addFields(
           {
-            name:  'Claims d\'alertes',
+            name:  '🔔 Claims d\'alertes',
             value: `**Total :** ${totalClaims}\n**Aujourd'hui :** ${claimsToday}\n**Cette semaine :** ${claimsWeek}`,
             inline: true,
           },
           {
-            name:  'Temps de jeu',
+            name:  '⏱️ Temps de jeu',
             value: 'Cliquez le bouton ci-dessous\net entrez votre pseudo Roblox\npour voir votre temps de jeu.',
             inline: true,
           },
           {
-            name:  'Derniers claims',
+            name:  '📋 Derniers claims',
             value: recentLines,
             inline: false,
           },
