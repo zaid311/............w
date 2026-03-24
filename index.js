@@ -1135,7 +1135,12 @@ client.once('ready', async () => {
   console.log('Bot prêt.');
 });
 
-mongoose.connect(MONGODB_URI)
+mongoose.connect(MONGODB_URI, {
+  serverSelectionTimeoutMS: 10000,
+  socketTimeoutMS: 45000,
+  heartbeatFrequencyMS: 10000,
+  maxPoolSize: 10,
+})
   .then(() => {
     console.log('MongoDB connecté.');
     client.login(DISCORD_TOKEN);
