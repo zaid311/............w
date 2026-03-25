@@ -2466,14 +2466,27 @@ mongoose.connect(MONGODB_URI, {
   console.log('🔑 Attempting Discord login...');
   console.log('Token exists:', !!DISCORD_TOKEN);
   console.log('Token length:', DISCORD_TOKEN?.length);
+  console.log('Token preview:', DISCORD_TOKEN?.slice(0, 10) + '...');
 
   try {
-    const result = await client.login(DISCORD_TOKEN.trim());
-    console.log('✅ Discord login OK:', result);
+    console.log('⏳ Calling client.login()...');
+    await client.login(DISCORD_TOKEN.trim());
+    console.log('✅ Discord login promise resolved');
   } catch (err) {
-    console.error('❌ DISCORD LOGIN ERROR:', err);
+    console.error('❌ DISCORD LOGIN CAUGHT ERROR:', err.message);
+    console.error('Full error:', err);
+    process.exit(1);
   }
 })
 .catch(err => {
   console.error('❌ MONGODB ERROR:', err);
+  process.exit(1);
 });
+
+// Add a timeout safety net
+setTimeout(() => {
+  if (!botReady) {
+    console.error('❌ Bot did not become ready within 30 seconds. Exiting.');
+    process.exit(1);
+  }
+}, 30000);
