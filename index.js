@@ -131,13 +131,27 @@ const client = new Client({
 });
 
 // Log errors
-client.on('error', err => console.error('Discord client error:', err));
-process.on('unhandledRejection', err => console.error('Unhandled rejection:', err));
+client.on('error', err => {
+  console.error('❌ Discord client error:', err);
+});
 
-// Ready event
-client.once('ready', () => {
+client.on('warn', msg => {
+  console.warn('⚠️ Discord warning:', msg);
+});
+
+client.on('debug', msg => {
+  if (msg.includes('Heartbeat') || msg.includes('READY')) {
+    console.log('🔍 Debug:', msg);
+  }
+});
+
+client.once('ready', async () => {
   console.log('🤖 Bot ready as', client.user.tag);
+  botReady = true;
   client.user.setActivity('Stradaz Cafe', { type: ActivityType.Watching });
+  await registerCommands();
+  processTempBanExpiry();
+  console.log('Bot prêt.');
 });
 
 // ─── Permission Helpers ───────────────────────────────────────────────────────
