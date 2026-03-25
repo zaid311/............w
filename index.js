@@ -119,7 +119,7 @@ function isDbReady() {
   return mongoose.connection.readyState === 1;
 }
 
-// ─── Discord Client ───────────────────────────────────────────────────────────
+// ─── Discord Client ─────────────────────────────────────────────────────────
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -130,14 +130,36 @@ const client = new Client({
   ]
 });
 
-// Log errors
+// ✅ REGISTER ALL LISTENERS IMMEDIATELY - ALL UNDER EACH OTHER
 client.on('error', err => console.error('Discord client error:', err));
+
 process.on('unhandledRejection', err => console.error('Unhandled rejection:', err));
 
-// Ready event
-client.once('ready', () => {
+client.once('ready', async () => {
   console.log('🤖 Bot ready as', client.user.tag);
+  botReady = true;
   client.user.setActivity('Stradaz Cafe', { type: ActivityType.Watching });
+  await registerCommands();
+  processTempBanExpiry();
+  console.log('Bot prêt.');
+});
+
+client.on('interactionCreate', async interaction => {
+  try {
+    // ✅ PASTE YOUR ENTIRE INTERACTION HANDLER CODE HERE
+    // (everything that was inside the old client.on('interactionCreate', async interaction => { ... }))
+    
+  } catch (err) {
+    console.error('Interaction error:', err);
+    try {
+      const errEmbed = errorEmbed('Une erreur interne est survenue. Veuillez réessayer.');
+      if (interaction.deferred || interaction.replied) {
+        await interaction.editReply({ embeds: [errEmbed], components: [] });
+      } else {
+        await interaction.reply({ embeds: [errEmbed], ephemeral: true });
+      }
+    } catch { /* ignore */ }
+  }
 });
 
 // ─── Permission Helpers ───────────────────────────────────────────────────────
@@ -2445,36 +2467,15 @@ client.on('interactionCreate', async interaction => {
   }
 });
 
-// ─── Startup ──────────────────────────────────────────────────────────────────
-client.once('ready', async () => {
-  console.log('Connecté en tant que ' + client.user.tag);
-  botReady = true;
-  client.user.setActivity('Stradaz Cafe', { type: ActivityType.Watching });
-  await registerCommands();
-  processTempBanExpiry(); // run immediately on startup
-  console.log('Bot prêt.');
-});
-
-mongoose.connect(MONGODB_URI, {
-  serverSelectionTimeoutMS: 15000,
-  socketTimeoutMS: 45000,
-  maxPoolSize: 10,
-})
+// ─── Startup ───────────────────────────────────────────────────────────
+mongoose.connect(MONGODB_URI, { ... })
 .then(async () => {
   console.log('✅ MongoDB connecté.');
-
-  console.log('🔑 Attempting Discord login...');
-  console.log('Token exists:', !!DISCORD_TOKEN);
-  console.log('Token length:', DISCORD_TOKEN?.length);
-  console.log('Token preview:', DISCORD_TOKEN?.slice(0, 10) + '...');
-
   try {
-    console.log('⏳ Calling client.login()...');
     await client.login(DISCORD_TOKEN.trim());
-    console.log('✅ Discord login promise resolved');
+    console.log('✅ Discord login initiated');
   } catch (err) {
-    console.error('❌ DISCORD LOGIN CAUGHT ERROR:', err.message);
-    console.error('Full error:', err);
+    console.error('❌ DISCORD LOGIN ERROR:', err);
     process.exit(1);
   }
 })
@@ -2482,11 +2483,3 @@ mongoose.connect(MONGODB_URI, {
   console.error('❌ MONGODB ERROR:', err);
   process.exit(1);
 });
-
-// Add a timeout safety net
-setTimeout(() => {
-  if (!botReady) {
-    console.error('❌ Bot did not become ready within 30 seconds. Exiting.');
-    process.exit(1);
-  }
-}, 30000);
