@@ -130,36 +130,14 @@ const client = new Client({
   ]
 });
 
-// ✅ REGISTER ALL LISTENERS IMMEDIATELY - ALL UNDER EACH OTHER
+// Log errors
 client.on('error', err => console.error('Discord client error:', err));
-
 process.on('unhandledRejection', err => console.error('Unhandled rejection:', err));
 
-client.once('ready', async () => {
+// Ready event
+client.once('ready', () => {
   console.log('🤖 Bot ready as', client.user.tag);
-  botReady = true;
   client.user.setActivity('Stradaz Cafe', { type: ActivityType.Watching });
-  await registerCommands();
-  processTempBanExpiry();
-  console.log('Bot prêt.');
-});
-
-client.on('interactionCreate', async interaction => {
-  try {
-    // ✅ PASTE YOUR ENTIRE INTERACTION HANDLER CODE HERE
-    // (everything that was inside the old client.on('interactionCreate', async interaction => { ... }))
-    
-  } catch (err) {
-    console.error('Interaction error:', err);
-    try {
-      const errEmbed = errorEmbed('Une erreur interne est survenue. Veuillez réessayer.');
-      if (interaction.deferred || interaction.replied) {
-        await interaction.editReply({ embeds: [errEmbed], components: [] });
-      } else {
-        await interaction.reply({ embeds: [errEmbed], ephemeral: true });
-      }
-    } catch { /* ignore */ }
-  }
 });
 
 // ─── Permission Helpers ───────────────────────────────────────────────────────
@@ -2468,18 +2446,34 @@ client.on('interactionCreate', async interaction => {
 });
 
 // ─── Startup ───────────────────────────────────────────────────────────
-mongoose.connect(MONGODB_URI, { ... })
+client.once('ready', async () => {
+  console.log('Connecté en tant que ' + client.user.tag);
+  botReady = true;
+  client.user.setActivity('Stradaz Cafe', { type: ActivityType.Watching });
+  await registerCommands();
+  processTempBanExpiry(); // run immediately on startup
+  console.log('Bot prêt.');
+});
+
+mongoose.connect(MONGODB_URI, {
+  serverSelectionTimeoutMS: 15000,
+  socketTimeoutMS: 45000,
+  maxPoolSize: 10,
+})
 .then(async () => {
   console.log('✅ MongoDB connecté.');
+
+  console.log('🔑 Attempting Discord login...');
+  console.log('Token exists:', !!DISCORD_TOKEN);
+  console.log('Token length:', DISCORD_TOKEN?.length);
+
   try {
-    await client.login(DISCORD_TOKEN.trim());
-    console.log('✅ Discord login initiated');
+    const result = await client.login(DISCORD_TOKEN.trim());
+    console.log('✅ Discord login OK:', result);
   } catch (err) {
     console.error('❌ DISCORD LOGIN ERROR:', err);
-    process.exit(1);
   }
 })
 .catch(err => {
   console.error('❌ MONGODB ERROR:', err);
-  process.exit(1);
 });
