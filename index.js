@@ -2464,4 +2464,6 @@ mongoose.connect(MONGODB_URI, {
     return client.login(DISCORD_TOKEN);
   })
   .then(() => console.log('Discord login OK.'))
-  .catch(err => console.error('Erreur démarrage:', err.message));
+  .catch(err => {
+  console.error('FULL ERROR:', err);
+});
