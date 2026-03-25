@@ -2448,22 +2448,25 @@ client.once('ready', async () => {
   console.log('Bot prêt.');
 });
 
-// ─── MongoDB + Discord Login ──────────────────────────────────────────────────
-mongoose.connection.on('disconnected', () => console.error('MongoDB déconnecté! Tentative de reconnexion...'));
-mongoose.connection.on('reconnected',  () => console.log('MongoDB reconnecté.'));
-mongoose.connection.on('error',        err => console.error('MongoDB erreur:', err.message));
-
 mongoose.connect(MONGODB_URI, {
   serverSelectionTimeoutMS: 15000,
-  socketTimeoutMS:          45000,
-  heartbeatFrequencyMS:     10000,
-  maxPoolSize:              10,
+  socketTimeoutMS: 45000,
+  maxPoolSize: 10,
 })
-  .then(() => {
-    console.log('MongoDB connecté.');
-    return client.login(DISCORD_TOKEN);
-  })
-  .then(() => console.log('Discord login OK.'))
-  .catch(err => {
-  console.error('FULL ERROR:', err);
+.then(async () => {
+  console.log('✅ MongoDB connecté.');
+
+  console.log('🔑 Attempting Discord login...');
+  console.log('Token exists:', !!DISCORD_TOKEN);
+  console.log('Token length:', DISCORD_TOKEN?.length);
+
+  try {
+    const result = await client.login(DISCORD_TOKEN.trim());
+    console.log('✅ Discord login OK:', result);
+  } catch (err) {
+    console.error('❌ DISCORD LOGIN ERROR:', err);
+  }
+})
+.catch(err => {
+  console.error('❌ MONGODB ERROR:', err);
 });
