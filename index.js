@@ -484,10 +484,10 @@ app.post('/alertstaff', async (req, res) => {
           color:       0xf39c12,
           thumbnail:   { url: WEBHOOK_AVATAR },
           fields: [
-            { name: '⚠️ Raison',    value: '```' + (reason || 'Aucune raison fournie') + '```', inline: false },
-            { name: '👤 Joueur',    value: `**${player_name}** (ID: \`${player_id}\`)`,          inline: true  },
-            { name: '🌐 Serveur',   value: `**${server_size || '?'}/${max_players || '?'}** joueurs`, inline: true },
-            { name: '🔗 Rejoindre', value: joinLink, inline: false },
+            { name: 'Raison',    value: '```' + (reason || 'Aucune raison fournie') + '```', inline: false },
+            { name: 'Joueur',    value: `**${player_name}** (ID: \`${player_id}\`)`,          inline: true  },
+            { name: 'Serveur',   value: `**${server_size || '?'}/${max_players || '?'}** joueurs`, inline: true },
+            { name: 'Rejoindre', value: joinLink, inline: false },
           ],
           timestamp: new Date().toISOString(),
           footer: { text: "Stradaz Cafe – Système d'Alerte Staff", icon_url: WEBHOOK_AVATAR },
@@ -914,14 +914,14 @@ client.on('interactionCreate', async interaction => {
             : 'Aucune session enregistrée';
           const avatar = await getRobloxAvatar(robloxUser.id);
           const embed = new EmbedBuilder()
-            .setTitle(`⏱️ Temps de jeu — ${robloxUser.name}`)
+            .setTitle(`⏱Temps de jeu — ${robloxUser.name}`)
             .setColor(0x5865f2)
             .setThumbnail(avatar || IMAGE)
             .addFields(
-              { name: '🕐 Temps total',         value: formatDuration(totalMs) || '0m', inline: true },
-              { name: '🔢 Sessions',             value: String(sessionCount),             inline: true },
-              { name: '📊 Moy. par session',     value: sessionCount > 0 ? formatDuration(totalMs / sessionCount) : 'N/A', inline: true },
-              { name: '📋 3 dernières sessions', value: recentLines, inline: false },
+              { name: 'Temps total',         value: formatDuration(totalMs) || '0m', inline: true },
+              { name: 'Sessions',             value: String(sessionCount),             inline: true },
+              { name: 'Moy. par session',     value: sessionCount > 0 ? formatDuration(totalMs / sessionCount) : 'N/A', inline: true },
+              { name: '3 dernières sessions', value: recentLines, inline: false },
             )
             .setTimestamp()
             .setFooter({ text: 'Stradaz Cafe – Suivi Temps de Jeu', iconURL: IMAGE });
@@ -1050,7 +1050,7 @@ client.on('interactionCreate', async interaction => {
               { name: 'Effectué par', value: '<@' + pending.requesterId + '>' }
             )
           );
-          const label = pending.auditAction === 'PROMOTE' ? '🎉 Promotion réussie !'
+          const label = pending.auditAction === 'PROMOTE' ? 'Promotion réussie !'
             : pending.auditAction === 'DEMOTE' ? '⬇️ Rétrogradation réussie.' : '✅ Rang modifié.';
           return interaction.editReply({
             embeds: [baseEmbed().setDescription(label).addFields(
@@ -1236,7 +1236,7 @@ client.on('interactionCreate', async interaction => {
           getRobloxAvatar(robloxUser.id),
         ]);
         const embed = baseEmbed()
-          .setTitle(`🔍 Rang de ${robloxUser.name}`)
+          .setTitle(`Rang de ${robloxUser.name}`)
           .addFields(
             { name: 'Utilisateur',    value: robloxUser.name },
             { name: 'Nom affiché',    value: robloxUser.displayName || robloxUser.name },
@@ -1273,7 +1273,7 @@ client.on('interactionCreate', async interaction => {
           new ButtonBuilder().setCustomId('confirmer::' + changeId).setLabel('✅ Confirmer').setStyle(ButtonStyle.Secondary),
           new ButtonBuilder().setCustomId('annuler::' + changeId).setLabel('❌ Annuler').setStyle(ButtonStyle.Danger)
         );
-        return interaction.editReply({ embeds: [baseEmbed().setTitle('🎉 Confirmer la Promotion').addFields(
+        return interaction.editReply({ embeds: [baseEmbed().setTitle('Confirmer la Promotion').addFields(
           { name: 'Utilisateur', value: robloxUser.name },
           { name: 'Ancien rang', value: oldRole.name, inline: true },
           { name: 'Nouveau rang', value: newRole.name, inline: true },
@@ -1339,7 +1339,7 @@ client.on('interactionCreate', async interaction => {
           new ButtonBuilder().setCustomId('confirmer::' + changeId).setLabel('✅ Confirmer').setStyle(ButtonStyle.Secondary),
           new ButtonBuilder().setCustomId('annuler::' + changeId).setLabel('❌ Annuler').setStyle(ButtonStyle.Danger)
         );
-        return interaction.editReply({ embeds: [baseEmbed().setTitle('🔧 Confirmer le Changement de Rang').addFields(
+        return interaction.editReply({ embeds: [baseEmbed().setTitle('Confirmer le Changement de Rang').addFields(
           { name: 'Utilisateur', value: robloxUser.name },
           { name: 'Rang actuel', value: oldRole?.name ?? 'Invité', inline: true },
           { name: 'Nouveau rang', value: newRole.name, inline: true }
@@ -1386,7 +1386,7 @@ client.on('interactionCreate', async interaction => {
         }
 
         const embed = baseEmbed()
-          .setTitle(`🔧 Mass Rank — ${newRole.name}`)
+          .setTitle(`Mass Rank — ${newRole.name}`)
           .addFields(
             { name: `✅ Réussis (${results.success.length})`, value: results.success.length > 0 ? results.success.join(', ') : 'Aucun', inline: false },
             { name: `❌ Échoués (${results.failed.length})`,  value: results.failed.length  > 0 ? results.failed.join('\n') : 'Aucun', inline: false },
@@ -1642,7 +1642,7 @@ client.on('interactionCreate', async interaction => {
           return `**${(pageNum - 1) * PER_PAGE + i + 1}.** \`${log.robloxUsername}\` — ${log.oldRank} → **${log.newRank}**\n> par <@${log.staffDiscordId}> · ${date}`;
         }).join('\n\n');
         return interaction.editReply({ embeds: [baseEmbed()
-          .setTitle(`📋 Journal des Rangs — Page ${pageNum}/${totalPages}`)
+          .setTitle(`Journal des Rangs — Page ${pageNum}/${totalPages}`)
           .setDescription(lines)
           .setFooter({ text: `Stradaz Cafe — ${total} entrées au total`, iconURL: IMAGE })
         ] });
@@ -1872,7 +1872,7 @@ client.on('interactionCreate', async interaction => {
           const status = b.active ? '🔴 Actif' : '🟢 Inactif';
           const expiry = b.expiresAt ? new Date(b.expiresAt).toLocaleString('fr-FR') : 'Permanent';
           embed.addFields({
-            name:  `${b.game === 'main' ? '🎮 Main Game' : '🏋️ Training Center'} — ${status}`,
+            name:  `${b.game === 'main' ? 'Main Game' : 'Training Center'} — ${status}`,
             value: `**Raison :** ${b.reason}\n**Banni par :** ${b.bannedBy}\n**Date :** ${new Date(b.bannedAt).toLocaleString('fr-FR')}\n**Expire :** ${expiry}`,
           });
         }
@@ -1899,7 +1899,7 @@ client.on('interactionCreate', async interaction => {
           return `**${i + 1}.** \`${a.action}\`${game} — par <@${a.staffDiscordId}> | ${date}\n> ${a.reason}`;
         }).join('\n\n');
         return interaction.editReply({ embeds: [baseEmbed()
-          .setTitle(`🛡️ Historique Modération — ${username}`)
+          .setTitle(`Historique Modération — ${username}`)
           .setDescription(lines)
         ] });
       } catch (err) {
@@ -1927,13 +1927,13 @@ client.on('interactionCreate', async interaction => {
         return interaction.editReply({ embeds: [baseEmbed()
           .setTitle('📊 Statistiques des Bans')
           .addFields(
-            { name: '🔴 Bans actifs',      value: String(totalActive),   inline: true },
-            { name: '🟢 Bans expirés',     value: String(totalInactive), inline: true },
-            { name: '🎮 Main (actif)',      value: String(mainActive),    inline: true },
-            { name: '🏋️ Training (actif)', value: String(trainActive),   inline: true },
-            { name: '⏱️ Temporaires',      value: String(tempActive),    inline: true },
-            { name: '♾️ Permanents',       value: String(permActive),    inline: true },
-            { name: '🏆 Top Banisseurs',   value: topBanners.map((b, i) => `**${i+1}.** <@${b._id}> — ${b.count}`).join('\n') || 'Aucun' },
+            { name: 'Bans actifs',      value: String(totalActive),   inline: true },
+            { name: 'Bans expirés',     value: String(totalInactive), inline: true },
+            { name: 'Main (actif)',      value: String(mainActive),    inline: true },
+            { name: 'Training (actif)', value: String(trainActive),   inline: true },
+            { name: '⏱Temporaires',      value: String(tempActive),    inline: true },
+            { name: 'Permanents',       value: String(permActive),    inline: true },
+            { name: 'Top Banisseurs',   value: topBanners.map((b, i) => `**${i+1}.** <@${b._id}> — ${b.count}`).join('\n') || 'Aucun' },
           )
         ] });
       } catch (err) {
@@ -1967,10 +1967,10 @@ client.on('interactionCreate', async interaction => {
         const embed = baseEmbed()
           .setTitle(`🌐 Statut des Serveurs — ${gameLabel}`)
           .addFields(
-            { name: '👥 Joueurs en ligne', value: String(totalPlayers), inline: true },
-            { name: '🖥️ Serveurs actifs',  value: String(totalServers), inline: true },
-            { name: '🎮 Jeu',              value: gameInfo?.name || gameLabel, inline: true },
-            { name: '📋 Serveurs',         value: serverLines }
+            { name: 'Joueurs en ligne', value: String(totalPlayers), inline: true },
+            { name: 'Serveurs actifs',  value: String(totalServers), inline: true },
+            { name: 'Jeu',              value: gameInfo?.name || gameLabel, inline: true },
+            { name: 'Serveurs',         value: serverLines }
           );
         return interaction.editReply({ embeds: [embed] });
       } catch (err) {
@@ -2002,7 +2002,7 @@ client.on('interactionCreate', async interaction => {
         }).join('\n');
 
         return interaction.editReply({ embeds: [baseEmbed()
-          .setTitle(`🖥️ Liste des Serveurs — ${gameLabel}`)
+          .setTitle(`Liste des Serveurs — ${gameLabel}`)
           .setDescription(lines)
           .setFooter({ text: `${servers.length} serveur(s) trouvé(s)`, iconURL: IMAGE })
         ] });
@@ -2037,9 +2037,9 @@ client.on('interactionCreate', async interaction => {
           .setTitle(`🔍 Info Serveur — ${gameLabel}`)
           .addFields(
             { name: 'Job ID',          value: `\`${server.id}\``, inline: false },
-            { name: '👥 Joueurs',      value: `${server.playing || 0}/${server.maxPlayers || '?'}`, inline: true },
-            { name: '🏓 Ping',         value: server.ping != null ? `${server.ping}ms` : 'N/A', inline: true },
-            { name: '🔗 Rejoindre',    value: `[Cliquez ici](${joinLink})`, inline: false },
+            { name: 'Joueurs',      value: `${server.playing || 0}/${server.maxPlayers || '?'}`, inline: true },
+            { name: 'Ping',         value: server.ping != null ? `${server.ping}ms` : 'N/A', inline: true },
+            { name: 'Rejoindre',    value: `[Cliquez ici](${joinLink})`, inline: false },
           )
         ] });
       } catch (err) {
@@ -2074,7 +2074,7 @@ client.on('interactionCreate', async interaction => {
           .addFields(
             { name: 'Jeu',     value: gameLabel },
             { name: 'Message', value: message },
-            { name: '⚠️ Note', value: 'Votre jeu Roblox doit avoir un script écoutant le topic `StaffAnnounce` pour afficher le message en jeu.' }
+            { name: 'Note', value: 'Votre jeu Roblox doit avoir un script écoutant le topic `StaffAnnounce` pour afficher le message en jeu.' }
           )
         ], components: [row] });
       } catch (err) {
@@ -2134,9 +2134,9 @@ client.on('interactionCreate', async interaction => {
         const owned      = await getUserBadges(robloxUser.id, universeId);
 
         const embed = baseEmbed()
-          .setTitle(`🏅 Badges — ${robloxUser.name} (${gameLabel})`)
+          .setTitle(`Badges — ${robloxUser.name} (${gameLabel})`)
           .setDescription(owned.length > 0
-            ? owned.map(b => `🏅 **${b.name}**`).join('\n')
+            ? owned.map(b => `**${b.name}**`).join('\n')
             : 'Aucun badge trouvé pour ce joueur dans ce jeu.'
           );
         return interaction.editReply({ embeds: [embed] });
@@ -2171,10 +2171,10 @@ client.on('interactionCreate', async interaction => {
           .setColor(0x5865f2)
           .setThumbnail(avatar || IMAGE)
           .addFields(
-            { name: '🕐 Temps total',         value: formatDuration(totalMs) || '0m', inline: true },
-            { name: '🔢 Sessions',             value: String(sessionCount),             inline: true },
-            { name: '📊 Moy. par session',     value: sessionCount > 0 ? formatDuration(totalMs / sessionCount) : 'N/A', inline: true },
-            { name: '📋 3 dernières sessions', value: recentLines }
+            { name: 'Temps total',         value: formatDuration(totalMs) || '0m', inline: true },
+            { name: 'Sessions',             value: String(sessionCount),             inline: true },
+            { name: 'Moy. par session',     value: sessionCount > 0 ? formatDuration(totalMs / sessionCount) : 'N/A', inline: true },
+            { name: '3 dernières sessions', value: recentLines }
           )
           .setTimestamp()
           .setFooter({ text: 'Stradaz Cafe – Suivi Temps de Jeu', iconURL: IMAGE })
@@ -2233,7 +2233,7 @@ client.on('interactionCreate', async interaction => {
         const notOwned = results.filter(r => !r.owns).map(r => `❌ ${r.name}`);
         const avatar   = await getRobloxAvatar(robloxUser.id);
         return interaction.editReply({ embeds: [baseEmbed()
-          .setTitle(`🎒 Inventaire — ${robloxUser.name}`)
+          .setTitle(`Inventaire — ${robloxUser.name}`)
           .setThumbnail(avatar || IMAGE)
           .addFields(
             { name: `✅ Possédés (${owned.length})`,      value: owned.length    > 0 ? owned.join('\n')    : 'Aucun', inline: true },
@@ -2283,19 +2283,19 @@ client.on('interactionCreate', async interaction => {
         const avatar = await getRobloxAvatar(robloxUser.id);
         if (!lastSession)
           return interaction.editReply({ embeds: [baseEmbed()
-            .setTitle(`👁️ Dernière Vue — ${robloxUser.name}`)
+            .setTitle(`Dernière Vue — ${robloxUser.name}`)
             .setThumbnail(avatar || IMAGE)
             .setDescription('Aucune session enregistrée pour ce joueur.')
           ] });
         const leftAt   = new Date(lastSession.leftAt);
         const joinedAt = new Date(lastSession.joinedAt);
         return interaction.editReply({ embeds: [baseEmbed()
-          .setTitle(`👁️ Dernière Vue — ${robloxUser.name}`)
+          .setTitle(`Dernière Vue — ${robloxUser.name}`)
           .setThumbnail(avatar || IMAGE)
           .addFields(
-            { name: '📅 Dernière session',  value: joinedAt.toLocaleString('fr-FR'), inline: true },
-            { name: '🚪 Déconnexion',       value: leftAt.toLocaleString('fr-FR'),   inline: true },
-            { name: '⏱️ Durée',             value: formatDuration(lastSession.durationMs), inline: true },
+            { name: 'Dernière session',  value: joinedAt.toLocaleString('fr-FR'), inline: true },
+            { name: 'Déconnexion',       value: leftAt.toLocaleString('fr-FR'),   inline: true },
+            { name: '⏱Durée',             value: formatDuration(lastSession.durationMs), inline: true },
           )
         ] });
       } catch (err) {
@@ -2379,9 +2379,9 @@ client.on('interactionCreate', async interaction => {
           .setColor(0x5865f2)
           .setThumbnail(memberAvatar)
           .addFields(
-            { name: "🔔 Claims d'alertes", value: `**Total :** ${totalClaims}\n**Aujourd'hui :** ${claimsToday}\n**Cette semaine :** ${claimsWeek}`, inline: true },
-            { name: '⏱️ Temps de jeu',     value: 'Cliquez le bouton ci-dessous\net entrez votre pseudo Roblox.', inline: true },
-            { name: '📋 Derniers claims',  value: recentLines },
+            { name: "Claims d'alertes", value: `**Total :** ${totalClaims}\n**Aujourd'hui :** ${claimsToday}\n**Cette semaine :** ${claimsWeek}`, inline: true },
+            { name: '⏱Temps de jeu',     value: 'Cliquez le bouton ci-dessous\net entrez votre pseudo Roblox.', inline: true },
+            { name: 'Derniers claims',  value: recentLines },
           )
           .setTimestamp()
           .setFooter({ text: 'Stradaz Cafe – Système MR/HR', iconURL: IMAGE });
@@ -2437,7 +2437,7 @@ client.on('interactionCreate', async interaction => {
         ).join('\n');
 
         return interaction.editReply({ embeds: [baseEmbed()
-          .setTitle(`😴 Membres Inactifs — ${days} derniers jours`)
+          .setTitle(`Membres Inactifs — ${days} derniers jours`)
           .setDescription(lines)
           .setFooter({ text: `${inactive.length} membre(s) inactif(s) trouvé(s)`, iconURL: IMAGE })
         ] });
