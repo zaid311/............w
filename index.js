@@ -14,7 +14,7 @@ app.use(express.json());
 app.get('/', (req, res) => res.send('Bot is running!'));
 
 // ─── Config ───────────────────────────────────────────────────────────────────
-const API_SECRET           = process.env.API_SECRET           || 'stradaz-secret-key'
+const API_SECRET           = process.env.API_SECRET           || 'stradaz-secret-key';
 const DISCORD_TOKEN        = process.env.DISCORD_TOKEN;
 const CLIENT_ID            = process.env.CLIENT_ID;
 const GUILD_ID             = process.env.GUILD_ID;
