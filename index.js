@@ -7,25 +7,6 @@ const {
 const mongoose = require('mongoose');
 const axios    = require('axios');
 
-// ─── Discord Client ─────────────────────────────────────────
-const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,           // Required to see servers the bot is in
-    GatewayIntentBits.GuildMessages,    // Required if your bot reads messages
-    GatewayIntentBits.MessageContent    // Required to access message content
-  ]
-});
-
-// Optional: log errors globally
-client.on('error', console.error);
-process.on('unhandledRejection', console.error);
-
-// Optional: ready event
-client.once('ready', async () => {
-  console.log('🤖 Bot ready as', client.user.tag);
-  client.user.setActivity('Stradaz Cafe', { type: ActivityType.Watching });
-});
-
 // ─── Express ──────────────────────────────────────────────────────────────────
 const express = require('express');
 const app = express();
@@ -149,8 +130,15 @@ const client = new Client({
   ]
 });
 
+// Log errors
 client.on('error', err => console.error('Discord client error:', err));
 process.on('unhandledRejection', err => console.error('Unhandled rejection:', err));
+
+// Ready event
+client.once('ready', () => {
+  console.log('🤖 Bot ready as', client.user.tag);
+  client.user.setActivity('Stradaz Cafe', { type: ActivityType.Watching });
+});
 
 // ─── Permission Helpers ───────────────────────────────────────────────────────
 
